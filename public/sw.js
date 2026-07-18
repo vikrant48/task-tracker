@@ -1,4 +1,5 @@
 // Static Service Worker for FocusFlow Daily Task Tracker PWA
+// Employs vanilla JS to avoid browser syntax parser crash.
 const CACHE_NAME = 'focusflow-v1';
 const ASSETS_TO_CACHE = [
     '/',
@@ -8,18 +9,18 @@ const ASSETS_TO_CACHE = [
 ];
 
 // Install Event
-self.addEventListener('install', (event: any) => {
+self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             console.log('[Service Worker] Caching App Shell');
             return cache.addAll(ASSETS_TO_CACHE);
         })
     );
-    (self as any).skipWaiting();
+    self.skipWaiting();
 });
 
 // Activate Event
-self.addEventListener('activate', (event: any) => {
+self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((keys) => {
             return Promise.all(
@@ -32,11 +33,11 @@ self.addEventListener('activate', (event: any) => {
             );
         })
     );
-    (self as any).clients.claim();
+    self.clients.claim();
 });
 
 // Fetch Event (Offline first fallback to Network)
-self.addEventListener('fetch', (event: any) => {
+self.addEventListener('fetch', (event) => {
     // Only cache GET requests
     if (event.request.method !== 'GET') return;
 
