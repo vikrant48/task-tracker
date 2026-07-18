@@ -27,7 +27,8 @@ import {
     Cloud,
     CloudOff,
     Archive,
-    Sparkles
+    Sparkles,
+    Trash2
 } from 'lucide-react';
 
 interface Task {
@@ -448,6 +449,36 @@ export default function WeeklyTracker() {
         }
     };
 
+    // Delete task permanently
+    const handleDeleteTask = async (taskId: string) => {
+        if (!userId) return;
+
+        // Perform vibration
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+            navigator.vibrate([40, 20, 20]);
+        }
+
+        const confirmMsg = "Are you sure you want to permanently delete this habit and all its completions? This action cannot be undone.";
+        if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) {
+            return;
+        }
+
+        try {
+            // Optimistic update
+            setTasks(prev => prev.filter(t => t.id !== taskId));
+
+            const { error: deleteError } = await supabase
+                .from('tasks')
+                .delete()
+                .eq('id', taskId);
+
+            if (deleteError) throw deleteError;
+        } catch (err: any) {
+            console.error('Error deleting task:', err);
+            setError('Could not delete task.');
+        }
+    };
+
     // Drag-and-drop handles
     const handleDragStart = (e: React.DragEvent, taskId: string) => {
         setDraggedTaskId(taskId);
@@ -552,9 +583,6 @@ export default function WeeklyTracker() {
                         <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">
                             {format(currentDate, 'MMMM yyyy')}
                         </h2>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            Week of {format(weekStart, 'MMM d, yyyy')}
-                        </p>
                     </div>
 
                     {/* Sync Status Badge */}
@@ -812,16 +840,26 @@ export default function WeeklyTracker() {
                                                                 {task.category || 'General'}
                                                             </span>
 
-                                                            {/* Share action button if current user owns the task */}
+                                                            {/* Share & Delete action buttons if current user owns the task */}
                                                             {task.user_id === userId && (
-                                                                <button
-                                                                    onClick={() => setSharingTaskId(task.id)}
-                                                                    type="button"
-                                                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded text-slate-400 hover:text-indigo-500 transition-opacity cursor-pointer flex items-center justify-center"
-                                                                    title="Share habit with partner"
-                                                                >
-                                                                    <Share2 className="w-3 h-3" />
-                                                                </button>
+                                                                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                                                    <button
+                                                                        onClick={() => setSharingTaskId(task.id)}
+                                                                        type="button"
+                                                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-indigo-500 transition-colors cursor-pointer flex items-center justify-center"
+                                                                        title="Share habit with partner"
+                                                                    >
+                                                                        <Share2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDeleteTask(task.id)}
+                                                                        type="button"
+                                                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer flex items-center justify-center"
+                                                                        title="Delete habit permanently"
+                                                                    >
+                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </div>
                                                             )}
                                                         </div>
                                                     </div>

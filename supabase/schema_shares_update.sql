@@ -1,5 +1,6 @@
 -- Database Migration: Tasks and Entries Sharing
 -- Creates the task_shares table and configures RLS to support collaborations.
+-- Breaks RLS policy recursion loops using Security Definer helper functions.
 
 -- 1. CREATE TASK SHARES TABLE
 CREATE TABLE IF NOT EXISTS public.task_shares (
@@ -13,7 +14,39 @@ CREATE TABLE IF NOT EXISTS public.task_shares (
 -- Enable RLS
 ALTER TABLE public.task_shares ENABLE ROW LEVEL SECURITY;
 
--- 2. DROP EXISTING POLICIES FOR UPGRADES
+-- 2. CREATE SECURITY DEFINER HELPER FUNCTIONS to bypass RLS recursion loops
+CREATE OR REPLACE FUNCTION public.is_task_owner(task_id UUID, user_id UUID)
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 
+        FROM public.tasks 
+        WHERE id = task_id AND tasks.user_id = is_task_owner.user_id
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_task_shared_with(task_id UUID, user_email TEXT)
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 
+        FROM public.task_shares 
+        WHERE task_shares.task_id = is_task_shared_with.task_id 
+          AND task_shares.shared_with_email = is_task_shared_with.user_email
+    );
+END;
+$$;
+
+-- 3. DROP EXISTING POLICIES FOR UPGRADES
 DROP POLICY IF EXISTS "Users can fully manage their own tasks" ON public.tasks;
 DROP POLICY IF EXISTS "Users can view tasks shared with them" ON public.tasks;
 DROP POLICY IF EXISTS "Users can fully manage their own task entries" ON public.entries;
@@ -21,7 +54,7 @@ DROP POLICY IF EXISTS "Users can view or log their own and shared entries" ON pu
 DROP POLICY IF EXISTS "Users can manage shares for their own tasks" ON public.task_shares;
 DROP POLICY IF EXISTS "Collaborators can view shares they are included in" ON public.task_shares;
 
--- 3. DEFINE UPDATED TASKS POLICIES
+-- 4. DEFINE UPDATED TASKS POLICIES
 -- Creator has full access
 CREATE POLICY "Users can fully manage their own tasks" ON public.tasks
     FOR ALL
@@ -34,63 +67,34 @@ CREATE POLICY "Users can view tasks shared with them" ON public.tasks
     FOR SELECT
     TO authenticated
     USING (
-        id IN (
-            SELECT task_id 
-            FROM public.task_shares 
-            WHERE shared_with_email = auth.jwt() ->> 'email'
-        )
+        public.is_task_shared_with(id, auth.jwt() ->> 'email')
     );
 
--- 4. DEFINE UPDATED ENTRIES POLICIES
--- Creator & Collaborators can read/insert/update/delete completion entries
+-- 5. DEFINE UPDATED ENTRIES POLICIES
 CREATE POLICY "Users can view or log their own and shared entries" ON public.entries
     FOR ALL
     TO authenticated
     USING (
         auth.uid() = user_id
-        OR task_id IN (
-            SELECT id 
-            FROM public.tasks 
-            WHERE user_id = auth.uid()
-            OR id IN (
-                SELECT task_id 
-                FROM public.task_shares 
-                WHERE shared_with_email = auth.jwt() ->> 'email'
-            )
-        )
+        OR public.is_task_owner(task_id, auth.uid())
+        OR public.is_task_shared_with(task_id, auth.jwt() ->> 'email')
     )
     WITH CHECK (
         auth.uid() = user_id
-        OR task_id IN (
-            SELECT id 
-            FROM public.tasks 
-            WHERE user_id = auth.uid()
-            OR id IN (
-                SELECT task_id 
-                FROM public.task_shares 
-                WHERE shared_with_email = auth.jwt() ->> 'email'
-            )
-        )
+        OR public.is_task_owner(task_id, auth.uid())
+        OR public.is_task_shared_with(task_id, auth.jwt() ->> 'email')
     );
 
--- 5. DEFINE SHARES POLICIES
+-- 6. DEFINE SHARES POLICIES
 -- Creator manages shares
 CREATE POLICY "Users can manage shares for their own tasks" ON public.task_shares
     FOR ALL
     TO authenticated
     USING (
-        task_id IN (
-            SELECT id 
-            FROM public.tasks 
-            WHERE user_id = auth.uid()
-        )
+        public.is_task_owner(task_id, auth.uid())
     )
     WITH CHECK (
-        task_id IN (
-            SELECT id 
-            FROM public.tasks 
-            WHERE user_id = auth.uid()
-        )
+        public.is_task_owner(task_id, auth.uid())
     );
 
 -- Collaborators can view shares
