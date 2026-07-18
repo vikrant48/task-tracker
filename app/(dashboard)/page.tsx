@@ -535,12 +535,26 @@ export default function WeeklyTracker() {
         setAddingShare(true);
         setError(null);
 
+        const emailClean = collaboratorEmail.trim().toLowerCase();
+
         try {
+            // Check if the user with this email exists in the database
+            const { data: userExists, error: checkError } = await supabase
+                .rpc('user_email_exists', { target_email: emailClean });
+
+            if (checkError) throw checkError;
+
+            if (!userExists) {
+                setError('This user email is not registered with FocusFlow.');
+                setAddingShare(false);
+                return;
+            }
+
             const { error: shareError } = await supabase
                 .from('task_shares')
                 .insert({
                     task_id: sharingTaskId,
-                    shared_with_email: collaboratorEmail.trim().toLowerCase(),
+                    shared_with_email: emailClean,
                 });
 
             if (shareError) throw shareError;
@@ -554,13 +568,36 @@ export default function WeeklyTracker() {
                 setTaskShares(updatedShares);
             }
 
-            setSharingTaskId(null);
             setCollaboratorEmail('');
         } catch (err: any) {
             console.error('Error sharing task:', err);
             setError(err.message || 'Could not share task. Make sure tables exist.');
         } finally {
             setAddingShare(false);
+        }
+    };
+
+    // Remove tasks collaboration share
+    const handleRemoveShare = async (shareId: string) => {
+        try {
+            const { error: removeError } = await supabase
+                .from('task_shares')
+                .delete()
+                .eq('id', shareId);
+
+            if (removeError) throw removeError;
+
+            // Update shares list local state
+            const { data: updatedShares } = await supabase
+                .from('task_shares')
+                .select('*');
+
+            if (updatedShares) {
+                setTaskShares(updatedShares);
+            }
+        } catch (err: any) {
+            console.error('Error removing share:', err);
+            setError('Could not remove collaborator.');
         }
     };
 
@@ -950,56 +987,97 @@ export default function WeeklyTracker() {
             </form>
 
             {/* Sharing collaborator modal popup */}
-            {sharingTaskId && (
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-xl animate-scale-up">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="text-base font-bold text-slate-950 dark:text-white flex items-center gap-1.5">
-                                    <Users className="w-4 h-4 text-violet-500" />
-                                    Collaborative Habit Sharing
-                                </h3>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                    Invite a friend or partner to complete this routine task with you.
-                                </p>
+            {sharingTaskId && (() => {
+                const targetTask = tasks.find(t => t.id === sharingTaskId);
+                const activeShares = taskShares.filter(s => s.task_id === sharingTaskId);
+                return (
+                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-xl animate-scale-up">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="text-base font-bold text-slate-950 dark:text-white flex items-center gap-1.5 animate-pulse-subtle">
+                                        <Users className="w-4 h-4 text-violet-500" />
+                                        Share Habit
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Habit: <span className="font-semibold text-slate-700 dark:text-slate-200">{targetTask?.name}</span>
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setSharingTaskId(null);
+                                        setCollaboratorEmail('');
+                                        setError(null);
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-450 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setSharingTaskId(null)}
-                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 hover:text-slate-800 dark:hover:text-white"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
 
-                        <form onSubmit={handleCreateShare} className="flex flex-col gap-3">
-                            <input
-                                type="email"
-                                required
-                                value={collaboratorEmail}
-                                onChange={(e) => setCollaboratorEmail(e.target.value)}
-                                placeholder="partner@gmail.com"
-                                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-xl text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-transparent transition-all"
-                            />
-                            <div className="flex justify-end gap-2 mt-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setSharingTaskId(null)}
-                                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all select-none cursor-pointer"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={addingShare || !collaboratorEmail.trim()}
-                                    className="px-4 py-2 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white font-bold text-xs shadow hover:from-violet-500 hover:to-indigo-500 transition-all select-none cursor-pointer disabled:opacity-40"
-                                >
-                                    {addingShare ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Invite Collaborator'}
-                                </button>
-                            </div>
-                        </form>
+                            {/* List of active shares */}
+                            {activeShares.length > 0 && (
+                                <div className="mb-4">
+                                    <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 dark:text-slate-500 block mb-2">Active Collaborators</span>
+                                    <div className="flex flex-col gap-2 max-h-28 overflow-y-auto pr-1">
+                                        {activeShares.map((share) => (
+                                            <div key={share.id} className="flex items-center justify-between bg-slate-50 dark:bg-slate-950 px-3 py-2 border border-slate-150 dark:border-slate-850 rounded-xl text-xs">
+                                                <span className="text-slate-700 dark:text-slate-300 truncate mr-2">{share.shared_with_email}</span>
+                                                <button
+                                                    onClick={() => handleRemoveShare(share.id)}
+                                                    type="button"
+                                                    className="text-[10px] text-rose-500 hover:text-rose-600 font-bold hover:underline cursor-pointer"
+                                                >
+                                                    Stop Share
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleCreateShare} className="flex flex-col gap-3">
+                                <div>
+                                    <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 dark:text-slate-500 block mb-2">Invite Collaborator</span>
+                                    <input
+                                        type="email"
+                                        required
+                                        value={collaboratorEmail}
+                                        onChange={(e) => setCollaboratorEmail(e.target.value)}
+                                        placeholder="partner@gmail.com"
+                                        className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2.5 w-full rounded-xl text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-transparent transition-all"
+                                    />
+                                </div>
+
+                                {error && (
+                                    <span className="text-rose-500 dark:text-rose-455 text-xs font-semibold leading-tight">{error}</span>
+                                )}
+
+                                <div className="flex justify-end gap-2 mt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSharingTaskId(null);
+                                            setCollaboratorEmail('');
+                                            setError(null);
+                                        }}
+                                        className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all select-none cursor-pointer"
+                                    >
+                                        Close
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={addingShare || !collaboratorEmail.trim()}
+                                        className="px-4 py-2 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white font-bold text-xs shadow hover:from-violet-500 hover:to-indigo-500 transition-all select-none cursor-pointer disabled:opacity-40"
+                                    >
+                                        {addingShare ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Invite'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 }

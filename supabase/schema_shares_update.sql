@@ -46,6 +46,21 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.user_email_exists(target_email TEXT)
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public, auth -- Include auth schema to read auth.users table
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 
+        FROM auth.users 
+        WHERE email = lower(target_email)
+    );
+END;
+$$;
+
 -- 3. DROP EXISTING POLICIES FOR UPGRADES
 DROP POLICY IF EXISTS "Users can fully manage their own tasks" ON public.tasks;
 DROP POLICY IF EXISTS "Users can view tasks shared with them" ON public.tasks;
