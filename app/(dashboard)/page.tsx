@@ -88,13 +88,6 @@ export default function WeeklyTracker() {
     // Drag-and-Drop Order State
     const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
-    // Mobil Swipe Action States
-    const [swipeTaskId, setSwipeTaskId] = useState<string | null>(null);
-    const [swipeOffset, setSwipeOffset] = useState<number>(0);
-    const touchStart = useRef<number>(0);
-    const touchStartY = useRef<number>(0);
-    const isSwiping = useRef<boolean>(false);
-
     // Shared Collaborative Modal
     const [sharingTaskId, setSharingTaskId] = useState<string | null>(null);
     const [collaboratorEmail, setCollaboratorEmail] = useState<string>('');
@@ -424,30 +417,7 @@ export default function WeeklyTracker() {
         }
     };
 
-    // Archive task
-    const handleArchiveTask = async (taskId: string) => {
-        if (!userId) return;
 
-        // Perform vibration
-        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-            navigator.vibrate(30);
-        }
-
-        try {
-            // Optimistic local state update
-            setTasks(prev => prev.filter(t => t.id !== taskId));
-
-            const { error: archiveError } = await supabase
-                .from('tasks')
-                .update({ archived: true })
-                .eq('id', taskId);
-
-            if (archiveError) throw archiveError;
-        } catch (err: any) {
-            console.error('Error archiving task:', err);
-            setError('Could not archive task.');
-        }
-    };
 
     // Delete task permanently
     const handleDeleteTask = async (taskId: string) => {
@@ -807,52 +777,13 @@ export default function WeeklyTracker() {
                                             onDragStart={(e) => handleDragStart(e, task.id)}
                                             onDragOver={(e) => handleDragOver(e, task.id)}
                                             onDragEnd={handleDragEnd}
-                                            // Handle swipe rows gestures
-                                            onTouchStart={(e) => {
-                                                touchStart.current = e.touches[0].clientX;
-                                                touchStartY.current = e.touches[0].clientY;
-                                                setSwipeTaskId(task.id);
-                                                isSwiping.current = true;
-                                            }}
-                                            onTouchMove={(e) => {
-                                                if (!isSwiping.current) return;
-                                                const currentX = e.touches[0].clientX;
-                                                const currentY = e.touches[0].clientY;
-                                                if (Math.abs(currentY - touchStartY.current) > Math.abs(currentX - touchStart.current)) {
-                                                    isSwiping.current = false;
-                                                    return;
-                                                }
-                                                const diff = currentX - touchStart.current;
-                                                if (diff < 0) {
-                                                    setSwipeOffset(Math.max(-100, diff));
-                                                }
-                                            }}
-                                            onTouchEnd={() => {
-                                                if (!isSwiping.current) return;
-                                                isSwiping.current = false;
-                                                if (swipeOffset < -75) {
-                                                    handleArchiveTask(task.id);
-                                                }
-                                                setSwipeOffset(0);
-                                                setSwipeTaskId(null);
-                                            }}
-                                            className="hover:bg-slate-100/40 dark:hover:bg-slate-900/20 select-none relative group transition-all duration-150"
+                                            className="hover:bg-slate-100/40 dark:hover:bg-slate-900/20 select-none relative group transition-all duration-155"
                                             style={{
-                                                transform: swipeTaskId === task.id ? `translateX(${swipeOffset}px)` : 'none',
                                                 opacity: draggedTaskId === task.id ? 0.4 : 1,
-                                                transition: isSwiping.current ? 'none' : 'transform 0.2s ease, opacity 0.2s ease',
                                             }}
                                         >
                                             {/* Sticky Task Row Cell */}
                                             <td className="sticky left-0 bg-white dark:bg-slate-950 z-10 px-4 py-3 border-r border-slate-205 dark:border-slate-900 w-[260px] shadow-sm transition-colors duration-200">
-                                                {/* Swipe Action Background Indicator */}
-                                                {swipeTaskId === task.id && (
-                                                    <div className="absolute top-0 right-[-100px] h-full w-[100px] bg-red-500/10 text-red-500 flex items-center justify-center border-l border-red-500/20">
-                                                        <Archive className="w-5 h-5 mr-1" />
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider">Archive</span>
-                                                    </div>
-                                                )}
-
                                                 <div className="flex items-center gap-1.5">
                                                     {/* Drag Handle representation */}
                                                     <div className="text-slate-350 dark:text-slate-600 hover:text-slate-500 cursor-grab active:cursor-grabbing p-1">
@@ -879,7 +810,7 @@ export default function WeeklyTracker() {
 
                                                             {/* Share & Delete action buttons if current user owns the task */}
                                                             {task.user_id === userId && (
-                                                                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                                                <div className="flex items-center gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
                                                                     <button
                                                                         onClick={() => setSharingTaskId(task.id)}
                                                                         type="button"
