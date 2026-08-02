@@ -66,3 +66,34 @@ self.addEventListener('fetch', (event) => {
         })
     );
 });
+
+// Push & Notification Events
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+            for (const client of clientList) {
+                if (client.url.includes(self.location.origin) && 'focus' in client) {
+                    return client.focus();
+                }
+            }
+            if (clients.openWindow) {
+                return clients.openWindow('/');
+            }
+        })
+    );
+});
+
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+        const title = event.data.title || 'FocusFlow Reminder';
+        const options = {
+            body: event.data.body || 'Don\'t forget to complete your habits for today!',
+            icon: '/icon-192x192.png',
+            badge: '/icon-192x192.png',
+            vibrate: [100, 50, 100],
+            data: { url: '/' }
+        };
+        self.registration.showNotification(title, options);
+    }
+});

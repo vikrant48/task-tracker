@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useOptimistic, useTransition, useRef } from 'react';
+import React, { useState, useEffect, useOptimistic, useTransition, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
     format,
@@ -28,8 +29,41 @@ import {
     CloudOff,
     Archive,
     Sparkles,
-    Trash2
+    Trash2,
+    Pencil,
+    Bell,
+    BellRing,
+    BellOff,
+    Flame,
+    Award,
+    Trophy
 } from 'lucide-react';
+
+function calculateTaskStreak(taskId: string, allEntries: Entry[]): number {
+    const completedDates = new Set(
+        allEntries
+            .filter(e => e.task_id === taskId && e.completed)
+            .map(e => e.entry_date)
+    );
+
+    let streak = 0;
+    let checkDate = new Date();
+    let checkStr = format(checkDate, 'yyyy-MM-dd');
+
+    // If today is not completed yet, check if yesterday was completed to keep the active streak counting
+    if (!completedDates.has(checkStr)) {
+        checkDate = subDays(checkDate, 1);
+        checkStr = format(checkDate, 'yyyy-MM-dd');
+    }
+
+    while (completedDates.has(checkStr)) {
+        streak++;
+        checkDate = subDays(checkDate, 1);
+        checkStr = format(checkDate, 'yyyy-MM-dd');
+    }
+
+    return streak;
+}
 
 interface Task {
     id: string;
@@ -62,7 +96,8 @@ interface TaskShare {
 }
 
 export default function WeeklyTracker() {
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
+    const router = useRouter();
     const [userId, setUserId] = useState<string | null>(null);
     const [userEmail, setUserEmail] = useState<string | null>(null);
 
@@ -80,6 +115,9 @@ export default function WeeklyTracker() {
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('All');
     const [newTaskCategory, setNewTaskCategory] = useState<string>('General');
 
+    // Milestones Showcase Modal State
+    const [showMilestonesModal, setShowMilestonesModal] = useState(false);
+
     // Offline Buffering States
     const [isOffline, setIsOffline] = useState(false);
     const [offlineQueue, setOfflineQueue] = useState<QueuedEntry[]>([]);
@@ -93,22 +131,126 @@ export default function WeeklyTracker() {
     const [collaboratorEmail, setCollaboratorEmail] = useState<string>('');
     const [addingShare, setAddingShare] = useState(false);
 
+    // Edit Task Name State
+    const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+    const [editingTaskName, setEditingTaskName] = useState<string>('');
+
+    // Notification State
+    const [notificationPermission, setNotificationPermission] = useState<string>('default');
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            setNotificationPermission(Notification.permission);
+        }
+    }, []);
+
+    const requestNotificationPermission = async () => {
+        if (typeof window === 'undefined' || !('Notification' in window)) {
+            alert('Notifications are not supported on this browser.');
+            return;
+        }
+
+        if (Notification.permission === 'denied') {
+            alert('Notifications are blocked by your browser settings. To enable reminders in Chrome/Edge:\n\n1. Click the lock/settings icon next to http://localhost:3000 in your URL address bar.\n2. Turn Notifications ON / Allow.\n3. Refresh the page.');
+            return;
+        }
+
+        try {
+            const permission = await Notification.requestPermission();
+            setNotificationPermission(permission);
+            if (permission === 'granted') {
+                sendNotificationReminder("Daily Reminders Activated! 🎉", "We'll notify you to check off your habits!");
+                triggerManualDailyReminder();
+            } else if (permission === 'denied') {
+                alert('Notification permission was blocked. Please enable notifications in your browser site settings.');
+            }
+        } catch (e) {
+            console.error('Error requesting notification permission:', e);
+        }
+    };
+
+    const sendNotificationReminder = (title: string, body: string) => {
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then((reg) => {
+                    reg.showNotification(title, {
+                        body,
+                        icon: '/icon-192x192.png',
+                        badge: '/icon-192x192.png',
+                    });
+                }).catch(() => {
+                    new Notification(title, { body, icon: '/icon-192x192.png' });
+                });
+            } else {
+                new Notification(title, { body, icon: '/icon-192x192.png' });
+            }
+        }
+    };
+
+    const triggerManualDailyReminder = () => {
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const todayCompletedIds = new Set(
+            entries.filter(e => e.entry_date === todayStr && e.completed).map(e => e.task_id)
+        );
+        const uncompletedCount = tasks.length - todayCompletedIds.size;
+
+        if (uncompletedCount > 0) {
+            sendNotificationReminder(
+                "FocusFlow Daily Reminder ⏰",
+                `You have ${uncompletedCount} habit${uncompletedCount > 1 ? 's' : ''} left to complete today. Keep your streak going!`
+            );
+        } else if (tasks.length > 0) {
+            sendNotificationReminder(
+                "All Habits Completed! ",
+                "Awesome job! You've completed all your habits for today."
+            );
+        } else {
+            sendNotificationReminder(
+                "FocusFlow Daily Tracker",
+                "Add your daily habits and track your streak milestones!"
+            );
+        }
+    };
+
     // Reference for scrolling
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     // Fetch current user details
     useEffect(() => {
+        let mounted = true;
+
+        // Safety fallback timer to prevent infinite loading screen
+        const safetyTimer = setTimeout(() => {
+            if (mounted) setLoading(false);
+        }, 3000);
+
         async function init() {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (user) {
-                setUserId(user.id);
-                setUserEmail(user.email || null);
+            try {
+                const {
+                    data: { user },
+                    error: authError
+                } = await supabase.auth.getUser();
+
+                if (!mounted) return;
+
+                if (user && !authError) {
+                    setUserId(user.id);
+                    setUserEmail(user.email || null);
+                } else {
+                    setLoading(false);
+                }
+            } catch (err) {
+                console.error('Error fetching user auth:', err);
+                if (mounted) setLoading(false);
             }
         }
         init();
-    }, []);
+
+        return () => {
+            mounted = false;
+            clearTimeout(safetyTimer);
+        };
+    }, [supabase]);
 
     // Background sync of queued local tasks
     const syncOfflineQueue = async (currentUserId: string) => {
@@ -449,6 +591,28 @@ export default function WeeklyTracker() {
         }
     };
 
+    // Save edited task name
+    const handleSaveEditTask = async (taskId: string) => {
+        if (!editingTaskName.trim() || !userId) return;
+        const newName = editingTaskName.trim();
+
+        try {
+            // Optimistic update
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, name: newName } : t));
+            setEditingTaskId(null);
+
+            const { error: updateError } = await supabase
+                .from('tasks')
+                .update({ name: newName })
+                .eq('id', taskId);
+
+            if (updateError) throw updateError;
+        } catch (err: any) {
+            console.error('Error updating task name:', err);
+            setError('Could not update task name.');
+        }
+    };
+
     // Drag-and-drop handles
     const handleDragStart = (e: React.DragEvent, taskId: string) => {
         setDraggedTaskId(taskId);
@@ -612,6 +776,28 @@ export default function WeeklyTracker() {
                                 <span>Offline</span>
                             </div>
                         )}
+
+                        {/* Daily Reminder Notifications Bell */}
+                        <button
+                            onClick={notificationPermission === 'granted' ? triggerManualDailyReminder : requestNotificationPermission}
+                            className={`flex items-center gap-1.5 ml-2 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border ${notificationPermission === 'granted'
+                                ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 hover:bg-violet-500/20'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:text-violet-600 dark:hover:text-violet-400'
+                                }`}
+                            title={notificationPermission === 'granted' ? "Click to send daily reminder / test notification" : "Enable Web Push Daily Reminders"}
+                        >
+                            {notificationPermission === 'granted' ? (
+                                <>
+                                    <BellRing className="w-3.5 h-3.5 text-violet-500 animate-pulse" />
+                                    <span>Reminders On</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Bell className="w-3.5 h-3.5" />
+                                    <span>Enable Reminders</span>
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
 
@@ -791,45 +977,132 @@ export default function WeeklyTracker() {
                                                     </div>
 
                                                     <div className="flex-1 min-w-0 pr-1 group">
-                                                        <div className="flex items-center gap-1.5 w-full">
-                                                            <span className="truncate text-slate-800 dark:text-slate-100 text-sm font-semibold leading-tight">{task.name}</span>
+                                                        {editingTaskId === task.id ? (
+                                                            <form
+                                                                onSubmit={(e) => {
+                                                                    e.preventDefault();
+                                                                    handleSaveEditTask(task.id);
+                                                                }}
+                                                                className="flex items-center gap-1 w-full"
+                                                            >
+                                                                <input
+                                                                    type="text"
+                                                                    value={editingTaskName}
+                                                                    onChange={(e) => setEditingTaskName(e.target.value)}
+                                                                    autoFocus
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Escape') setEditingTaskId(null);
+                                                                    }}
+                                                                    className="bg-slate-50 dark:bg-slate-900 border border-violet-500 px-2 py-0.5 rounded text-xs text-slate-800 dark:text-slate-100 w-full focus:outline-none focus:ring-1 focus:ring-violet-500"
+                                                                />
+                                                                <button
+                                                                    type="submit"
+                                                                    className="p-1 text-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer flex items-center justify-center"
+                                                                    title="Save name"
+                                                                >
+                                                                    <Check className="w-3.5 h-3.5" />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEditingTaskId(null)}
+                                                                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer flex items-center justify-center"
+                                                                    title="Cancel"
+                                                                >
+                                                                    <X className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </form>
+                                                        ) : (
+                                                            <>
+                                                                <div className="flex items-center gap-1.5 w-full">
+                                                                    <span className="truncate text-slate-800 dark:text-slate-100 text-sm font-semibold leading-tight">{task.name}</span>
 
-                                                            {/* Collaborative users badge */}
-                                                            {isShared && (
-                                                                <span className="flex-shrink-0" title="Collaborative Shared Habit">
-                                                                    <Users className="w-3.5 h-3.5 text-indigo-500" />
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                                    {/* Collaborative users badge */}
+                                                                    {isShared && (
+                                                                        <span className="flex-shrink-0" title="Collaborative Shared Habit">
+                                                                            <Users className="w-3.5 h-3.5 text-indigo-500" />
+                                                                        </span>
+                                                                    )}
 
-                                                        {/* Category and Sharing triggers */}
-                                                        <div className="flex items-center justify-between mt-1">
-                                                            <span className="text-[9px] text-slate-500 font-extrabold tracking-wider uppercase">
-                                                                {task.category || 'General'}
-                                                            </span>
+                                                                    {/* Streak & Milestone Badges */}
+                                                                    {(() => {
+                                                                        const streak = calculateTaskStreak(task.id, optimisticEntries);
+                                                                        if (streak <= 0) return null;
+                                                                        return (
+                                                                            <div className="flex items-center gap-1 flex-shrink-0 ml-auto sm:ml-0">
+                                                                                <span className="flex items-center gap-0.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20" title={`Current Active Streak: ${streak} day${streak > 1 ? 's' : ''}`}>
+                                                                                    <Flame className="w-3 h-3 text-amber-500 fill-amber-500" />
+                                                                                    {streak}d
+                                                                                </span>
 
-                                                            {/* Share & Delete action buttons if current user owns the task */}
-                                                            {task.user_id === userId && (
-                                                                <div className="flex items-center gap-1">
-                                                                    <button
-                                                                        onClick={() => setSharingTaskId(task.id)}
-                                                                        type="button"
-                                                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-indigo-500 transition-colors cursor-pointer flex items-center justify-center"
-                                                                        title="Share habit with partner"
-                                                                    >
-                                                                        <Share2 className="w-3.5 h-3.5" />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleDeleteTask(task.id)}
-                                                                        type="button"
-                                                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer flex items-center justify-center"
-                                                                        title="Delete habit permanently"
-                                                                    >
-                                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                                    </button>
+                                                                                {/* 7-Day Bronze Badge */}
+                                                                                {streak >= 7 && (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-700/15 text-amber-700 dark:text-amber-400 border border-amber-700/30 text-[10px] font-bold" title="🥉 7-Day Focus Streak Milestone!">
+                                                                                        <img src="/badge_7days.png" alt="7-Day Badge" className="w-4 h-4 object-contain" />
+                                                                                        <span>7d</span>
+                                                                                    </span>
+                                                                                )}
+
+                                                                                {/* 30-Day Silver Badge */}
+                                                                                {streak >= 30 && (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-300/30 text-slate-700 dark:text-slate-200 border border-slate-400/40 text-[10px] font-bold" title="🥈 30-Day Master Streak Milestone!">
+                                                                                        <img src="/badge_30days.png" alt="30-Day Badge" className="w-4 h-4 object-contain" />
+                                                                                        <span>30d</span>
+                                                                                    </span>
+                                                                                )}
+
+                                                                                {/* 100-Day Gold Badge */}
+                                                                                {streak >= 100 && (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-yellow-400/20 text-yellow-600 dark:text-yellow-400 border border-yellow-500/40 text-[10px] font-bold shadow-sm shadow-yellow-500/20" title="🏆 100-Day Legend Streak Milestone!">
+                                                                                        <img src="/badge_100days.png" alt="100-Day Badge" className="w-4 h-4 object-contain animate-pulse" />
+                                                                                        <span>100d</span>
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
                                                                 </div>
-                                                            )}
-                                                        </div>
+
+                                                                {/* Category and Sharing triggers */}
+                                                                <div className="flex items-center justify-between mt-1">
+                                                                    <span className="text-[9px] text-slate-500 font-extrabold tracking-wider uppercase">
+                                                                        {task.category || 'General'}
+                                                                    </span>
+
+                                                                    {/* Edit, Share & Delete action buttons if current user owns the task */}
+                                                                    {task.user_id === userId && (
+                                                                        <div className="flex items-center gap-1">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setEditingTaskId(task.id);
+                                                                                    setEditingTaskName(task.name);
+                                                                                }}
+                                                                                type="button"
+                                                                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-violet-500 transition-colors cursor-pointer flex items-center justify-center"
+                                                                                title="Edit habit name"
+                                                                            >
+                                                                                <Pencil className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => setSharingTaskId(task.id)}
+                                                                                type="button"
+                                                                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-indigo-500 transition-colors cursor-pointer flex items-center justify-center"
+                                                                                title="Share habit with partner"
+                                                                            >
+                                                                                <Share2 className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleDeleteTask(task.id)}
+                                                                                type="button"
+                                                                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer flex items-center justify-center"
+                                                                                title="Delete habit permanently"
+                                                                            >
+                                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </td>
@@ -1009,6 +1282,61 @@ export default function WeeklyTracker() {
                     </div>
                 );
             })()}
+            {/* Milestones Showcase Modal */}
+            {showMilestonesModal && (
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                            <div className="flex items-center gap-2">
+                                <Trophy className="w-5 h-5 text-amber-500 fill-amber-500" />
+                                <h3 className="text-lg font-extrabold text-slate-800 dark:text-white">Streak Milestones & Badges</h3>
+                            </div>
+                            <button
+                                onClick={() => setShowMilestonesModal(false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+                            Maintain consistent daily completions to unlock 3D streak badges for your routine habits!
+                        </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                            {/* 7-Day Badge */}
+                            <div className="flex flex-col items-center text-center bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
+                                <img src="/badge_7days.png" alt="7 Day Bronze Badge" className="w-14 h-14 object-contain mb-2 drop-shadow-md" />
+                                <span className="text-xs font-extrabold text-amber-700 dark:text-amber-400">7-Day Focus</span>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 font-semibold">🥉 Bronze Milestone</span>
+                            </div>
+
+                            {/* 30-Day Badge */}
+                            <div className="flex flex-col items-center text-center bg-slate-500/5 dark:bg-slate-500/10 border border-slate-400/20 p-4 rounded-2xl">
+                                <img src="/badge_30days.png" alt="30 Day Silver Badge" className="w-14 h-14 object-contain mb-2 drop-shadow-md" />
+                                <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">30-Day Master</span>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 font-semibold">🥈 Silver Milestone</span>
+                            </div>
+
+                            {/* 100-Day Badge */}
+                            <div className="flex flex-col items-center text-center bg-yellow-500/5 dark:bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-2xl">
+                                <img src="/badge_100days.png" alt="100 Day Gold Badge" className="w-14 h-14 object-contain mb-2 drop-shadow-md animate-pulse" />
+                                <span className="text-xs font-extrabold text-yellow-600 dark:text-yellow-400">100-Day Legend</span>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 font-semibold">🏆 Gold Milestone</span>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setShowMilestonesModal(false)}
+                                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-950 font-extrabold text-xs shadow hover:bg-slate-800 dark:hover:bg-slate-100 transition-all select-none cursor-pointer"
+                            >
+                                Got it
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

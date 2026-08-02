@@ -391,8 +391,8 @@ export default function AnalyticsPage() {
                         key={cat}
                         onClick={() => setSelectedCategoryFilter(cat)}
                         className={`px-3.5 py-1 rounded-xl text-xs font-semibold cursor-pointer select-none transition-all ${selectedCategoryFilter === cat
-                                ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border border-violet-500 text-white shadow'
-                                : 'text-slate-400 border border-transparent hover:text-slate-205 hover:border-slate-800'
+                            ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border border-violet-500 text-white shadow'
+                            : 'text-slate-400 border border-transparent hover:text-slate-205 hover:border-slate-800'
                             }`}
                     >
                         {cat}
@@ -597,6 +597,72 @@ export default function AnalyticsPage() {
                         </div>
                     </div>
 
+                    {/* Milestone Badges Showcase in Analytics */}
+                    <div className="bg-slate-900/30 border border-slate-900 rounded-2xl p-5 sm:p-6 backdrop-blur">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                <Award className="w-4 h-4 text-amber-500" />
+                                🏆 Streak Milestone Badges & Trophy Showcase
+                            </h3>
+                            <span className="text-xs text-slate-400 font-semibold">
+                                {stats.filter((s) => s.currentStreak >= 7 || s.longestStreak >= 7).length} / {stats.length} Habits Unlocked
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            {/* 7-Day Bronze Badge */}
+                            {(() => {
+                                const unlocked7 = stats.some((s) => s.currentStreak >= 7 || s.longestStreak >= 7);
+                                return (
+                                    <div className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${unlocked7 ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-slate-950/40 border-slate-900 opacity-50'}`}>
+                                        <img src="/badge_7days.png" alt="7 Day Badge" className="w-12 h-12 object-contain flex-shrink-0" />
+                                        <div>
+                                            <div className="text-xs font-extrabold flex items-center gap-1">
+                                                <span>7-Day Focus Badge</span>
+                                                {unlocked7 && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-md">Unlocked</span>}
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 block mt-0.5">Reach 7 continuous days</span>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* 30-Day Silver Badge */}
+                            {(() => {
+                                const unlocked30 = stats.some((s) => s.currentStreak >= 30 || s.longestStreak >= 30);
+                                return (
+                                    <div className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${unlocked30 ? 'bg-slate-300/10 border-slate-400/30 text-slate-200' : 'bg-slate-950/40 border-slate-900 opacity-50'}`}>
+                                        <img src="/badge_30days.png" alt="30 Day Badge" className="w-12 h-12 object-contain flex-shrink-0" />
+                                        <div>
+                                            <div className="text-xs font-extrabold flex items-center gap-1">
+                                                <span>30-Day Master Badge</span>
+                                                {unlocked30 && <span className="text-[10px] bg-slate-400/20 text-slate-300 px-1.5 py-0.5 rounded-md">Unlocked</span>}
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 block mt-0.5">Reach 30 continuous days</span>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* 100-Day Gold Badge */}
+                            {(() => {
+                                const unlocked100 = stats.some((s) => s.currentStreak >= 100 || s.longestStreak >= 100);
+                                return (
+                                    <div className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${unlocked100 ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300' : 'bg-slate-950/40 border-slate-900 opacity-50'}`}>
+                                        <img src="/badge_100days.png" alt="100 Day Badge" className="w-12 h-12 object-contain flex-shrink-0" />
+                                        <div>
+                                            <div className="text-xs font-extrabold flex items-center gap-1">
+                                                <span>100-Day Legend Badge</span>
+                                                {unlocked100 && <span className="text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-md">Unlocked</span>}
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 block mt-0.5">Reach 100 continuous days</span>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+
                     {/* Cards metrics lists per task */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {stats.map((taskStat) => (
@@ -605,9 +671,21 @@ export default function AnalyticsPage() {
                                 className="bg-slate-900/30 border border-slate-900 rounded-2xl p-5 backdrop-blur flex justify-between items-center group hover:border-slate-800/80 transition-all shadow-lg"
                             >
                                 <div className="flex flex-col gap-1 max-w-[65%]">
-                                    <h4 className="font-semibold text-sm text-slate-100 group-hover:text-violet-400 transition-colors truncate">
-                                        {taskStat.name}
-                                    </h4>
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-semibold text-sm text-slate-100 group-hover:text-violet-400 transition-colors truncate">
+                                            {taskStat.name}
+                                        </h4>
+                                        {/* Task Badge Pills */}
+                                        {taskStat.currentStreak >= 7 && (
+                                            <img src="/badge_7days.png" alt="7d" className="w-4 h-4 object-contain" title="7-Day Focus Badge Unlocked" />
+                                        )}
+                                        {taskStat.currentStreak >= 30 && (
+                                            <img src="/badge_30days.png" alt="30d" className="w-4 h-4 object-contain" title="30-Day Master Badge Unlocked" />
+                                        )}
+                                        {taskStat.currentStreak >= 100 && (
+                                            <img src="/badge_100days.png" alt="100d" className="w-4 h-4 object-contain" title="100-Day Legend Badge Unlocked" />
+                                        )}
+                                    </div>
                                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">{taskStat.category}</span>
                                     <div className="flex items-center gap-3.5 mt-2">
                                         {/* Current Streak badge */}
