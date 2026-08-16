@@ -748,30 +748,30 @@ export default function WeeklyTracker() {
     return (
         <div className="flex-1 flex flex-col gap-6">
             {/* Header controls layout */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900/40 p-4 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-all duration-200">
-                <div className="flex items-center justify-between md:justify-start gap-4">
-                    <div>
-                        <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-                            {format(currentDate, 'MMM yyyy')}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-900/40 p-4 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-all duration-200">
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-start gap-3 sm:gap-4">
+                    <div className="shrink-0">
+                        <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight whitespace-nowrap">
+                            {format(currentDate, 'MMMM yyyy')}
                         </h2>
                     </div>
 
                     {/* Sync Status Badge */}
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-2 shrink-0">
                         {syncState === 'synced' && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 whitespace-nowrap shrink-0">
                                 <Cloud className="w-3.5 h-3.5" />
                                 <span>Synced</span>
                             </div>
                         )}
                         {syncState === 'syncing' && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 animate-pulse">
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 animate-pulse whitespace-nowrap shrink-0">
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 <span>Syncing</span>
                             </div>
                         )}
                         {syncState === 'offline' && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500 bg-amber-500/10">
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500 bg-amber-500/10 whitespace-nowrap shrink-0">
                                 <CloudOff className="w-3.5 h-3.5 animate-bounce" />
                                 <span>Offline</span>
                             </div>
@@ -780,7 +780,7 @@ export default function WeeklyTracker() {
                         {/* Daily Reminder Notifications Bell */}
                         <button
                             onClick={notificationPermission === 'granted' ? triggerManualDailyReminder : requestNotificationPermission}
-                            className={`flex items-center gap-1.5 ml-2 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border ${notificationPermission === 'granted'
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border whitespace-nowrap shrink-0 ${notificationPermission === 'granted'
                                 ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 hover:bg-violet-500/20'
                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:text-violet-600 dark:hover:text-violet-400'
                                 }`}
@@ -788,22 +788,22 @@ export default function WeeklyTracker() {
                         >
                             {notificationPermission === 'granted' ? (
                                 <>
-                                    <BellRing className="w-3.5 h-3.5 text-violet-500 animate-pulse" />
-                                    <span>Reminders On</span>
+                                    <BellRing className="w-3.5 h-3.5 text-violet-500 animate-pulse shrink-0" />
+                                    <span className="whitespace-nowrap">Reminders On</span>
                                 </>
                             ) : (
                                 <>
-                                    <Bell className="w-3.5 h-3.5" />
-                                    <span>Enable Reminders</span>
+                                    <Bell className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="whitespace-nowrap">Enable Reminders</span>
                                 </>
                             )}
                         </button>
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-nowrap shrink-0 overflow-x-auto">
                     {/* Nav buttons */}
-                    <div className="flex items-center h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1 transition-colors">
+                    <div className="flex items-center h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1 transition-colors shrink-0">
                         <button
                             onClick={prevWeek}
                             className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
@@ -813,7 +813,7 @@ export default function WeeklyTracker() {
                         </button>
                         <button
                             onClick={jumpToToday}
-                            className="h-8 px-3 flex items-center justify-center rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
+                            className="h-8 px-3 flex items-center justify-center rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer whitespace-nowrap"
                         >
                             Today
                         </button>
@@ -827,7 +827,7 @@ export default function WeeklyTracker() {
                     </div>
 
                     {/* Jump Picker showing week start to end */}
-                    <div className="relative flex items-center h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer">
+                    <div className="relative flex items-center h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer shrink-0">
                         <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-300 select-none whitespace-nowrap">
                             {format(weekStart, 'MMM d')} - {format(addDays(weekStart, 6), 'MMM d, yyyy')}
