@@ -752,7 +752,7 @@ export default function WeeklyTracker() {
                 <div className="flex items-center justify-between md:justify-start gap-4">
                     <div>
                         <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-                            {format(currentDate, 'MMMM yyyy')}
+                            {format(currentDate, 'MMM yyyy')}
                         </h2>
                     </div>
 
