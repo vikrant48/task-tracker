@@ -36,8 +36,11 @@ import {
     BellOff,
     Flame,
     Award,
-    Trophy
+    Trophy,
+    MoreVertical,
+    Lock
 } from 'lucide-react';
+import AICoachDrawer from '@/components/AICoachDrawer';
 
 function calculateTaskStreak(taskId: string, allEntries: Entry[]): number {
     const completedDates = new Set(
@@ -137,6 +140,12 @@ export default function WeeklyTracker() {
 
     // Notification State
     const [notificationPermission, setNotificationPermission] = useState<string>('default');
+
+    // Mobile Responsive View State
+    const [mobileSelectedDayIndex, setMobileSelectedDayIndex] = useState<number>(0);
+    const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'matrix'>('cards');
+    const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
+    const [activeMenuTaskId, setActiveMenuTaskId] = useState<string | null>(null);
 
     useEffect(() => {
         if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -255,7 +264,8 @@ export default function WeeklyTracker() {
     // Background sync of queued local tasks
     const syncOfflineQueue = async (currentUserId: string) => {
         if (!navigator.onLine || !currentUserId || syncingOffline) return;
-        const saved = localStorage.getItem('focusflow_offline_queue');
+        const queueKey = `focusflow_offline_queue_${currentUserId}`;
+        const saved = localStorage.getItem(queueKey);
         if (!saved) return;
 
         try {
@@ -277,8 +287,8 @@ export default function WeeklyTracker() {
 
             if (syncError) throw syncError;
 
-            // Clear local queue
-            localStorage.removeItem('focusflow_offline_queue');
+            // Clear local queue for this user
+            localStorage.removeItem(queueKey);
             setOfflineQueue([]);
 
             // Refetch fresh entries to sync state
@@ -399,6 +409,15 @@ export default function WeeklyTracker() {
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
+    useEffect(() => {
+        const todayIdx = weekDays.findIndex((d) => isToday(d));
+        if (todayIdx !== -1) {
+            setMobileSelectedDayIndex(todayIdx);
+        } else {
+            setMobileSelectedDayIndex(0);
+        }
+    }, [currentDate]);
+
     // Determine navigation
     const prevWeek = () => setCurrentDate(subDays(currentDate, 7));
     const nextWeek = () => setCurrentDate(addDays(currentDate, 7));
@@ -427,6 +446,11 @@ export default function WeeklyTracker() {
     // Toggle checklist complete
     const handleToggle = async (taskId: string, dateStr: string, currentCompleted: boolean) => {
         if (!userId) return;
+
+        // Guard against future dates
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        if (dateStr > todayStr) return;
+
         const newCompleted = !currentCompleted;
 
         // Perform mobile haptic feedback vibration
@@ -458,7 +482,9 @@ export default function WeeklyTracker() {
             }
 
             setOfflineQueue(updatedQueue);
-            localStorage.setItem('focusflow_offline_queue', JSON.stringify(updatedQueue));
+            if (userId) {
+                localStorage.setItem(`focusflow_offline_queue_${userId}`, JSON.stringify(updatedQueue));
+            }
 
             // Sync baseline local state
             const targetIndex = entries.findIndex(e => e.task_id === taskId && e.entry_date === dateStr);
@@ -531,6 +557,7 @@ export default function WeeklyTracker() {
             if (addedTask) {
                 setTasks((prev) => [...prev, addedTask]);
                 setNewTaskName('');
+                setIsAddTaskOpen(false);
             }
         } catch (err: any) {
             console.error('Error adding task:', err);
@@ -570,24 +597,29 @@ export default function WeeklyTracker() {
             navigator.vibrate([40, 20, 20]);
         }
 
-        const confirmMsg = "Are you sure you want to permanently delete this habit and all its completions? This action cannot be undone.";
-        if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) {
-            return;
-        }
-
         try {
             // Optimistic update
             setTasks(prev => prev.filter(t => t.id !== taskId));
+            setEntries(prev => prev.filter(e => e.task_id !== taskId));
+            setTaskShares(prev => prev.filter(s => s.task_id !== taskId));
 
+            // Delete associated entries and shares first to prevent FK constraint failures
+            await supabase.from('entries').delete().eq('task_id', taskId);
+            await supabase.from('task_shares').delete().eq('task_id', taskId);
+
+            // Delete task
             const { error: deleteError } = await supabase
                 .from('tasks')
                 .delete()
                 .eq('id', taskId);
 
-            if (deleteError) throw deleteError;
+            if (deleteError) {
+                console.error('Database delete error:', deleteError);
+                throw deleteError;
+            }
         } catch (err: any) {
             console.error('Error deleting task:', err);
-            setError('Could not delete task.');
+            setError('Could not delete task: ' + (err.message || 'Unknown error'));
         }
     };
 
@@ -735,6 +767,40 @@ export default function WeeklyTracker() {
         }
     };
 
+    // Batch add AI-generated habits
+    const handleAddTasksBatch = async (newHabits: { name: string; category: string }[]) => {
+        if (!userId || !newHabits.length) return;
+        const insertPayload = newHabits.map((h, i) => ({
+            user_id: userId,
+            name: h.name,
+            category: h.category || 'General',
+            sort_order: tasks.length + i,
+        }));
+
+        try {
+            const { data, error } = await supabase
+                .from('tasks')
+                .insert(insertPayload)
+                .select();
+
+            if (error) throw error;
+            if (data) {
+                setTasks((prev) => [...prev, ...data]);
+            }
+        } catch (e: any) {
+            console.error('Error adding micro-habits batch:', e);
+            setError('Could not add micro-habits.');
+        }
+    };
+
+    // Toggle matched habit from AI natural language prompt
+    const handleToggleTaskMatch = (taskId: string) => {
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const entryMatch = optimisticEntries.find(e => e.task_id === taskId && e.entry_date === todayStr);
+        const currentCompleted = entryMatch?.completed || false;
+        handleToggle(taskId, todayStr, currentCompleted);
+    };
+
     // Filter tasks based on selected tab category
     const filteredTasks = tasks.filter(
         (t) => selectedCategoryFilter === 'All' || t.category === selectedCategoryFilter
@@ -748,31 +814,29 @@ export default function WeeklyTracker() {
     return (
         <div className="flex-1 flex flex-col gap-6">
             {/* Header controls layout */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900/40 p-4 border border-slate-205 dark:border-slate-900 rounded-2xl backdrop-blur transition-all duration-200">
-                <div className="flex items-center justify-between md:justify-start gap-4">
-                    <div>
-                        <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-                            {format(currentDate, 'MMM yyyy')}
-                        </h2>
-                    </div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-slate-900/40 p-3.5 sm:p-4 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-all duration-200">
+                <div className="flex items-center justify-between gap-2 sm:gap-4 w-full md:w-auto">
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight shrink-0">
+                        {format(currentDate, 'MMM yyyy')}
+                    </h2>
 
-                    {/* Sync Status Badge */}
-                    <div className="flex items-center">
+                    {/* Sync & Reminders Badges */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                         {syncState === 'synced' && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">
-                                <Cloud className="w-3.5 h-3.5" />
+                            <div className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">
+                                <Cloud className="w-3 h-3" />
                                 <span>Synced</span>
                             </div>
                         )}
                         {syncState === 'syncing' && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 animate-pulse">
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <div className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 animate-pulse">
+                                <Loader2 className="w-3 h-3 animate-spin" />
                                 <span>Syncing</span>
                             </div>
                         )}
                         {syncState === 'offline' && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500 bg-amber-500/10">
-                                <CloudOff className="w-3.5 h-3.5 animate-bounce" />
+                            <div className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-500 bg-amber-500/10">
+                                <CloudOff className="w-3 h-3 animate-bounce" />
                                 <span>Offline</span>
                             </div>
                         )}
@@ -780,7 +844,7 @@ export default function WeeklyTracker() {
                         {/* Daily Reminder Notifications Bell */}
                         <button
                             onClick={notificationPermission === 'granted' ? triggerManualDailyReminder : requestNotificationPermission}
-                            className={`flex items-center gap-1.5 ml-2 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border ${notificationPermission === 'granted'
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border ${notificationPermission === 'granted'
                                 ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 hover:bg-violet-500/20'
                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:text-violet-600 dark:hover:text-violet-400'
                                 }`}
@@ -788,38 +852,38 @@ export default function WeeklyTracker() {
                         >
                             {notificationPermission === 'granted' ? (
                                 <>
-                                    <BellRing className="w-3.5 h-3.5 text-violet-500 animate-pulse" />
-                                    <span>Reminders On</span>
+                                    <BellRing className="w-3 h-3 text-violet-500 animate-pulse" />
+                                    <span>Reminders</span>
                                 </>
                             ) : (
                                 <>
-                                    <Bell className="w-3.5 h-3.5" />
-                                    <span>Enable Reminders</span>
+                                    <Bell className="w-3 h-3" />
+                                    <span>Reminders</span>
                                 </>
                             )}
                         </button>
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center justify-between sm:justify-start gap-2 w-full md:w-auto">
                     {/* Nav buttons */}
-                    <div className="flex items-center h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1 transition-colors">
+                    <div className="flex items-center h-9 sm:h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-0.5 sm:p-1 transition-colors">
                         <button
                             onClick={prevWeek}
-                            className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
+                            className="h-8 w-7 sm:w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
                             aria-label="Previous week"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
                         <button
                             onClick={jumpToToday}
-                            className="h-8 px-3 flex items-center justify-center rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
+                            className="h-8 px-2 sm:px-3 flex items-center justify-center rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
                         >
                             Today
                         </button>
                         <button
                             onClick={nextWeek}
-                            className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
+                            className="h-8 w-7 sm:w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
                             aria-label="Next week"
                         >
                             <ChevronRight className="w-4 h-4" />
@@ -827,10 +891,10 @@ export default function WeeklyTracker() {
                     </div>
 
                     {/* Jump Picker showing week start to end */}
-                    <div className="relative flex items-center h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer">
-                        <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 select-none whitespace-nowrap">
-                            {format(weekStart, 'MMM d')} - {format(addDays(weekStart, 6), 'MMM d, yyyy')}
+                    <div className="relative flex items-center h-9 sm:h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 sm:px-3 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer flex-1 sm:flex-initial justify-center">
+                        <CalendarIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 flex-shrink-0" />
+                        <span className="text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 select-none whitespace-nowrap">
+                            {format(weekStart, 'MMM d')} - {format(addDays(weekStart, 6), 'MMM d')}
                         </span>
                         <input
                             type="date"
@@ -854,34 +918,290 @@ export default function WeeklyTracker() {
                 </div>
             )}
 
-            {/* Category Filter Tabs */}
-            <div className="flex flex-wrap gap-1.5 p-1.5 bg-white dark:bg-slate-900/30 border border-slate-205 dark:border-slate-900 rounded-2xl w-fit transition-colors">
-                {['All', 'General', 'Work', 'Health', 'Personal'].map((cat) => (
+            {/* Mobile View Switcher (Mobile Only) */}
+            <div className="sm:hidden flex items-center justify-between bg-white dark:bg-slate-900/40 p-2.5 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-all">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 pl-1">Mobile View:</span>
+                <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl">
                     <button
-                        key={cat}
-                        onClick={() => setSelectedCategoryFilter(cat)}
-                        className={`px-4 py-1.5 rounded-xl text-xs font-bold cursor-pointer select-none transition-all ${selectedCategoryFilter === cat
-                            ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border border-violet-500 text-white shadow-md'
-                            : 'text-slate-500 dark:text-slate-400 border border-transparent hover:text-slate-850 dark:hover:text-slate-200 hover:border-slate-200 dark:hover:border-slate-800'
+                        type="button"
+                        onClick={() => setMobileViewMode('cards')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${mobileViewMode === 'cards'
+                            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                             }`}
                     >
-                        {cat}
+                        📱 Daily Cards
                     </button>
-                ))}
+                    <button
+                        type="button"
+                        onClick={() => setMobileViewMode('matrix')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${mobileViewMode === 'matrix'
+                            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                            }`}
+                    >
+                        📊 Full Grid
+                    </button>
+                </div>
             </div>
 
-            {error && (
-                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 px-4 py-3 rounded-xl text-sm animate-slide-in">
-                    <ShieldAlert className="w-5 h-5 flex-shrink-0" />
-                    <span className="font-semibold">{error}</span>
-                    <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-600">
-                        <X className="w-4 h-4" />
-                    </button>
+            {/* Mobile Day Strip Selector & Progress Ring (Mobile Only - Cards View) */}
+            {mobileViewMode === 'cards' && (
+                <div className="sm:hidden flex flex-col gap-3 bg-white dark:bg-slate-900/40 p-3.5 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur">
+                    {/* Day selector horizontal strip */}
+                    <div className="grid grid-cols-7 gap-1">
+                        {weekDays.map((day, idx) => {
+                            const isSelected = idx === mobileSelectedDayIndex;
+                            const isDayToday = isToday(day);
+                            const dateStr = format(day, 'yyyy-MM-dd');
+
+                            // Calculate completion count for this day
+                            const dayCompletedCount = entries.filter(
+                                e => filteredTasks.some(t => t.id === e.task_id) && e.entry_date === dateStr && e.completed
+                            ).length;
+                            const hasCompletions = dayCompletedCount > 0;
+                            const isAllCompleted = filteredTasks.length > 0 && dayCompletedCount === filteredTasks.length;
+
+                            return (
+                                <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => setMobileSelectedDayIndex(idx)}
+                                    className={`flex flex-col items-center py-2 px-1 rounded-xl transition-all relative ${isSelected
+                                        ? isDayToday
+                                            ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/30 ring-2 ring-emerald-400 font-bold scale-[1.05] border-2 border-emerald-400'
+                                            : 'bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/30 ring-2 ring-violet-500/20 font-bold scale-[1.05]'
+                                        : isDayToday
+                                            ? 'bg-emerald-500/20 dark:bg-emerald-500/25 border-2 border-emerald-500 text-emerald-700 dark:text-emerald-300 font-extrabold shadow-sm'
+                                            : 'bg-slate-100/70 dark:bg-slate-950/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-900'
+                                        }`}
+                                >
+                                    <span className={`text-[9px] uppercase tracking-wider font-extrabold opacity-80 mb-0.5 ${isDayToday && !isSelected ? 'text-emerald-600 dark:text-emerald-300' : ''}`}>
+                                        {format(day, 'eee')}
+                                    </span>
+                                    <span className="text-xs font-extrabold">{format(day, 'd')}</span>
+
+                                    {/* Small status dot indicator */}
+                                    <div className="mt-1 flex gap-0.5">
+                                        {isAllCompleted ? (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                        ) : hasCompletions ? (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                        ) : (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                        )}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Day Progress Summary Bar */}
+                    {(() => {
+                        const targetDay = weekDays[mobileSelectedDayIndex] || weekDays[0];
+                        const dateStr = format(targetDay, 'yyyy-MM-dd');
+                        const completedCount = entries.filter(
+                            e => filteredTasks.some(t => t.id === e.task_id) && e.entry_date === dateStr && e.completed
+                        ).length;
+                        const total = filteredTasks.length;
+                        const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+
+                        return (
+                            <div className="flex flex-col gap-1.5 pt-1">
+                                <div className="flex justify-between items-center text-xs">
+                                    <span className="font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                        <CalendarIcon className="w-3.5 h-3.5 text-violet-500" />
+                                        {format(targetDay, 'EEEE, MMM d')}
+                                        {isToday(targetDay) && (
+                                            <span className="text-[10px] bg-violet-500/10 text-violet-600 dark:text-violet-400 px-2 py-0.5 rounded-full font-bold">
+                                                Today
+                                            </span>
+                                        )}
+                                    </span>
+                                    <span className="font-extrabold text-violet-600 dark:text-violet-400">
+                                        {completedCount}/{total} ({pct}%)
+                                    </span>
+                                </div>
+                                <div className="w-full bg-slate-100 dark:bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-200/50 dark:border-slate-850">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-violet-600 via-indigo-600 to-emerald-500 transition-all duration-300 rounded-full"
+                                        style={{ width: `${pct}%` }}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
 
-            {/* Main Grid Card */}
-            <div className="bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex flex-col justify-start relative transition-colors duration-200 min-h-[300px]">
+            {/* Mobile Daily Cards List (Mobile Only - Cards View) */}
+            {mobileViewMode === 'cards' && filteredTasks.length > 0 && (
+                <div className="sm:hidden flex flex-col gap-3">
+                    {filteredTasks.map((task) => {
+                        const targetDay = weekDays[mobileSelectedDayIndex] || weekDays[0];
+                        const dateStr = format(targetDay, 'yyyy-MM-dd');
+                        const entryMatch = optimisticEntries.find(
+                            (e) => e.task_id === task.id && e.entry_date === dateStr
+                        );
+                        const isCompleted = entryMatch?.completed || false;
+                        const streak = calculateTaskStreak(task.id, optimisticEntries);
+                        const sharesForTask = taskShares.filter(s => s.task_id === task.id);
+                        const isShared = sharesForTask.length > 0 || task.user_id !== userId;
+
+                        return (
+                            <div
+                                key={task.id}
+                                className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${isCompleted
+                                    ? 'bg-gradient-to-r from-violet-500/10 to-indigo-500/10 border-violet-500/30 dark:border-violet-500/20'
+                                    : 'bg-white dark:bg-slate-900/40 border-slate-200 dark:border-slate-900 shadow-sm'
+                                    }`}
+                            >
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    {(() => {
+                                        const todayStr = format(new Date(), 'yyyy-MM-dd');
+                                        const isFuture = dateStr > todayStr;
+                                        return (
+                                            <button
+                                                onClick={() => !isFuture && handleToggle(task.id, dateStr, isCompleted)}
+                                                disabled={isFuture}
+                                                type="button"
+                                                className={`w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center focus:outline-none transition-all border ${isFuture
+                                                    ? 'bg-slate-100/50 dark:bg-slate-950/20 border-slate-200/50 dark:border-slate-800/40 text-slate-300 dark:text-slate-700 opacity-40 cursor-not-allowed'
+                                                    : isCompleted
+                                                        ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow-lg shadow-violet-500/25 ring-2 ring-violet-500/20 active:scale-90 cursor-pointer'
+                                                        : 'bg-slate-100 dark:bg-slate-950/60 hover:bg-slate-200 dark:hover:bg-slate-950 border-slate-200 dark:border-slate-800 text-transparent hover:text-slate-400 active:scale-90 cursor-pointer'
+                                                    }`}
+                                                title={isFuture ? 'Future dates cannot be filled' : undefined}
+                                            >
+                                                {isFuture ? <Lock className="w-5 h-5 text-slate-400/50 dark:text-slate-600" /> : <Check className="w-6 h-6 stroke-[3px]" />}
+                                            </button>
+                                        );
+                                    })()}
+
+                                    <div className="flex flex-col min-w-0 flex-1">
+                                        {editingTaskId === task.id ? (
+                                            <div className="flex items-center gap-1.5">
+                                                <input
+                                                    type="text"
+                                                    value={editingTaskName}
+                                                    onChange={(e) => setEditingTaskName(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleSaveEditTask(task.id);
+                                                        if (e.key === 'Escape') setEditingTaskId(null);
+                                                    }}
+                                                    className="bg-slate-100 dark:bg-slate-950 border border-violet-500 px-2.5 py-1 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:outline-none w-full"
+                                                    autoFocus
+                                                />
+                                                <button
+                                                    onClick={() => handleSaveEditTask(task.id)}
+                                                    type="button"
+                                                    className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors shrink-0"
+                                                    title="Save"
+                                                >
+                                                    <Check className="w-4 h-4 stroke-[3px]" />
+                                                </button>
+                                                <button
+                                                    onClick={() => setEditingTaskId(null)}
+                                                    type="button"
+                                                    className="p-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition-colors shrink-0"
+                                                    title="Cancel"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className={`text-base font-bold truncate ${isCompleted ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-white'}`}>
+                                                        {task.name}
+                                                    </span>
+                                                    {isShared && <Users className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />}
+                                                </div>
+
+                                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                                        {task.category || 'General'}
+                                                    </span>
+                                                    {streak > 0 && (
+                                                        <span className="flex items-center gap-0.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                                            <Flame className="w-3 h-3 text-amber-500 fill-amber-500" />
+                                                            {streak}d
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons - Hidden behind 3 dots menu to prevent accidental clicks */}
+                                {task.user_id === userId && (
+                                    <div className="relative flex items-center flex-shrink-0">
+                                        {activeMenuTaskId === task.id ? (
+                                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-1 rounded-xl shadow-lg animate-scale-up">
+                                                <button
+                                                    onClick={() => {
+                                                        setEditingTaskId(task.id);
+                                                        setEditingTaskName(task.name);
+                                                        setActiveMenuTaskId(null);
+                                                    }}
+                                                    type="button"
+                                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-violet-500 transition-colors"
+                                                    title="Edit habit"
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setSharingTaskId(task.id);
+                                                        setActiveMenuTaskId(null);
+                                                    }}
+                                                    type="button"
+                                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-indigo-500 transition-colors"
+                                                    title="Share habit"
+                                                >
+                                                    <Share2 className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        handleDeleteTask(task.id);
+                                                        setActiveMenuTaskId(null);
+                                                    }}
+                                                    type="button"
+                                                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-rose-500 transition-colors"
+                                                    title="Delete habit"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => setActiveMenuTaskId(null)}
+                                                    type="button"
+                                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                                    title="Close menu"
+                                                >
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => setActiveMenuTaskId(task.id)}
+                                                type="button"
+                                                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                title="Habit Options"
+                                            >
+                                                <MoreVertical className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Main Grid Card (Always shown on sm: iPad/Desktop, and on Mobile when mobileViewMode is matrix) */}
+            <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex-col justify-start relative transition-colors duration-200 min-h-[300px] ${mobileViewMode === 'matrix' ? 'flex' : 'hidden sm:flex'}`}>
                 {loading ? (
                     <div className="flex-1 flex flex-col items-center justify-center p-12 gap-3">
                         <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
@@ -1110,6 +1430,8 @@ export default function WeeklyTracker() {
                                             {/* 7 Days completions checkboxes */}
                                             {weekDays.map((day, dIdx) => {
                                                 const dateStr = format(day, 'yyyy-MM-dd');
+                                                const todayStr = format(new Date(), 'yyyy-MM-dd');
+                                                const isFuture = dateStr > todayStr;
                                                 const entryMatch = optimisticEntries.find(
                                                     (e) => e.task_id === task.id && e.entry_date === dateStr
                                                 );
@@ -1122,14 +1444,18 @@ export default function WeeklyTracker() {
                                                     >
                                                         <div className="flex justify-center items-center">
                                                             <button
-                                                                onClick={() => handleToggle(task.id, dateStr, isCompleted)}
+                                                                onClick={() => !isFuture && handleToggle(task.id, dateStr, isCompleted)}
+                                                                disabled={isFuture}
                                                                 type="button"
-                                                                className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center focus:outline-none transition-all active:scale-90 border cursor-pointer ${isCompleted
-                                                                    ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow-lg shadow-violet-500/25 ring-2 ring-violet-500/20'
-                                                                    : 'bg-slate-100 dark:bg-slate-950/40 hover:bg-slate-200 dark:hover:bg-slate-950 border-slate-205 dark:border-slate-800 text-transparent hover:text-slate-400 dark:hover:text-slate-700'
+                                                                className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center focus:outline-none transition-all border ${isFuture
+                                                                    ? 'bg-slate-100/30 dark:bg-slate-950/20 border-slate-200/40 dark:border-slate-900/30 text-slate-300 dark:text-slate-700 opacity-30 cursor-not-allowed'
+                                                                    : isCompleted
+                                                                        ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow-lg shadow-violet-500/25 ring-2 ring-violet-500/20 active:scale-90 cursor-pointer'
+                                                                        : 'bg-slate-100 dark:bg-slate-950/40 hover:bg-slate-200 dark:hover:bg-slate-950 border-slate-200 dark:border-slate-800 text-transparent hover:text-slate-400 dark:hover:text-slate-700 active:scale-90 cursor-pointer'
                                                                     }`}
+                                                                title={isFuture ? 'Future dates cannot be filled' : undefined}
                                                             >
-                                                                <Check className="w-5 h-5 stroke-[3px] transition-transform" />
+                                                                {isFuture ? <Lock className="w-4 h-4 text-slate-400/40 dark:text-slate-700" /> : <Check className="w-5 h-5 stroke-[3px] transition-transform" />}
                                                             </button>
                                                         </div>
                                                     </td>
@@ -1144,51 +1470,75 @@ export default function WeeklyTracker() {
                 )}
             </div>
 
-            {/* Write New Task Form */}
-            <form
-                onSubmit={handleFormSubmit}
-                className="flex flex-col gap-3 bg-white dark:bg-slate-900/40 p-4 border border-slate-205 dark:border-slate-900 rounded-2xl backdrop-blur mt-auto transition-colors duration-200"
-            >
-                <div className="flex gap-2 flex-wrap items-center">
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-wider mr-1 select-none pointer-events-none">Category:</span>
-                    {['General', 'Work', 'Health', 'Personal'].map((cat) => (
+            {/* Collapsible Write New Task Form */}
+            {!isAddTaskOpen ? (
+                <button
+                    type="button"
+                    onClick={() => setIsAddTaskOpen(true)}
+                    className="flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-sm py-3 px-5 rounded-2xl shadow-lg shadow-violet-500/20 active:scale-98 transition-all cursor-pointer border border-violet-500/30 w-full sm:w-auto self-start mt-auto"
+                >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Habit</span>
+                </button>
+            ) : (
+                <form
+                    onSubmit={handleFormSubmit}
+                    className="flex flex-col gap-3 bg-white dark:bg-slate-900/60 p-4 border border-slate-200 dark:border-slate-850 rounded-2xl backdrop-blur mt-auto transition-all duration-200 animate-slide-in relative"
+                >
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-wider select-none pointer-events-none">New Habit Entry</span>
                         <button
-                            key={cat}
                             type="button"
-                            onClick={() => setNewTaskCategory(cat)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold select-none cursor-pointer transition-all border ${newTaskCategory === cat
-                                ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow shadow-violet-600/30'
-                                : 'bg-slate-100 dark:bg-slate-950/40 border-slate-200 dark:border-slate-850 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-400 dark:hover:border-slate-700'
-                                }`}
+                            onClick={() => setIsAddTaskOpen(false)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                            aria-label="Close form"
                         >
-                            {cat}
+                            <X className="w-4 h-4" />
                         </button>
-                    ))}
-                </div>
-                <div className="flex items-center gap-2">
-                    <input
-                        value={newTaskName}
-                        onChange={(e) => setNewTaskName(e.target.value)}
-                        disabled={addingTask}
-                        placeholder="I want to work on..."
-                        className="flex-1 appearance-none bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 px-4 py-2.5 rounded-xl text-sm placeholder-slate-400 dark:placeholder-slate-500 text-slate-800 dark:text-slate-205 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-transparent transition-all"
-                    />
-                    <button
-                        type="submit"
-                        disabled={addingTask || !newTaskName.trim()}
-                        className="flex items-center justify-center bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-bold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all select-none duration-150 cursor-pointer whitespace-nowrap"
-                    >
-                        {addingTask ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                            <>
-                                <Plus className="w-4 h-4 mr-1.5" />
-                                Add Task
-                            </>
-                        )}
-                    </button>
-                </div>
-            </form>
+                    </div>
+
+                    <div className="flex gap-2 flex-wrap items-center">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-wider mr-1 select-none pointer-events-none">Category:</span>
+                        {['General', 'Work', 'Health', 'Personal'].map((cat) => (
+                            <button
+                                key={cat}
+                                type="button"
+                                onClick={() => setNewTaskCategory(cat)}
+                                className={`px-3 py-1 rounded-full text-xs font-bold select-none cursor-pointer transition-all border ${newTaskCategory === cat
+                                    ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow shadow-violet-600/30'
+                                    : 'bg-slate-100 dark:bg-slate-950/40 border-slate-200 dark:border-slate-850 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-400 dark:hover:border-slate-700'
+                                    }`}
+                            >
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <input
+                            value={newTaskName}
+                            onChange={(e) => setNewTaskName(e.target.value)}
+                            disabled={addingTask}
+                            placeholder="I want to work on..."
+                            className="flex-1 min-w-0 appearance-none bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3.5 sm:px-4 py-2.5 rounded-xl text-sm placeholder-slate-400 dark:placeholder-slate-500 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+                            autoFocus
+                        />
+                        <button
+                            type="submit"
+                            disabled={addingTask || !newTaskName.trim()}
+                            className="flex items-center justify-center bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-bold px-4 sm:px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all select-none duration-150 cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                            {addingTask ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <>
+                                    <Plus className="w-4 h-4 mr-1.5" />
+                                    Add Task
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            )}
 
             {/* Sharing collaborator modal popup */}
             {sharingTaskId && (() => {
@@ -1337,6 +1687,14 @@ export default function WeeklyTracker() {
                     </div>
                 </div>
             )}
+
+            {/* AI Coach & Natural Logger Floating Drawer */}
+            <AICoachDrawer
+                tasks={tasks}
+                userId={userId}
+                onAddTasksBatch={handleAddTasksBatch}
+                onToggleTaskMatch={handleToggleTaskMatch}
+            />
         </div>
     );
 }

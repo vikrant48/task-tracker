@@ -59,6 +59,37 @@ export default function AnalyticsPage() {
     // Analytics Filters
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('All');
 
+    // AI Performance Report State
+    const [aiReport, setAiReport] = useState<{ topWin: string; riskAlert: string; customTip: string } | null>(null);
+    const [aiReportLoading, setAiReportLoading] = useState(false);
+
+    const fetchWeeklyReport = async () => {
+        if (aiReportLoading) return;
+        setAiReportLoading(true);
+        try {
+            const res = await fetch('/api/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'weekly_report',
+                    payload: {
+                        statsSummary: {
+                            totalHabits: tasks.length,
+                        },
+                    },
+                }),
+            });
+            const data = await res.json();
+            if (data.topWin) {
+                setAiReport(data);
+            }
+        } catch (e) {
+            console.error('Error fetching AI report:', e);
+        } finally {
+            setAiReportLoading(false);
+        }
+    };
+
     useEffect(() => {
         async function init() {
             const {
@@ -357,14 +388,14 @@ export default function AnalyticsPage() {
     }, [filteredTasks, filteredTaskIds, entries]);
 
     return (
-        <div className="flex-1 flex flex-col gap-6">
+        <div className="flex-1 flex flex-col gap-3 sm:gap-6">
             {/* Sub header and Range controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/40 p-4 border border-slate-900 rounded-2xl backdrop-blur">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 sm:p-4 bg-slate-900/40 border border-slate-900 rounded-2xl backdrop-blur">
                 <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                    <h2 className="text-lg sm:text-2xl font-bold text-white tracking-tight">
                         Habit Analytics
                     </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
                         Visualize your routines, streaks, and completion rates
                     </p>
                 </div>
@@ -375,7 +406,7 @@ export default function AnalyticsPage() {
                         <button
                             key={opt}
                             onClick={() => setRange(opt)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer select-none ${range === opt ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                            className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer select-none ${range === opt ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
                                 }`}
                         >
                             {opt === '7' ? '7D' : opt === '30' ? '30D' : opt === 'month' ? 'Month' : '90D'}
@@ -385,12 +416,12 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Category Filter Tabs */}
-            <div className="flex flex-wrap gap-1.5 p-1.5 bg-slate-900/30 border border-slate-900 rounded-2xl w-fit">
+            <div className="flex flex-wrap gap-1 p-1 sm:p-1.5 bg-slate-900/30 border border-slate-900 rounded-xl sm:rounded-2xl w-full sm:w-fit">
                 {['All', 'General', 'Work', 'Health', 'Personal'].map((cat) => (
                     <button
                         key={cat}
                         onClick={() => setSelectedCategoryFilter(cat)}
-                        className={`px-3.5 py-1 rounded-xl text-xs font-semibold cursor-pointer select-none transition-all ${selectedCategoryFilter === cat
+                        className={`px-2.5 sm:px-3.5 py-1 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-semibold cursor-pointer select-none transition-all ${selectedCategoryFilter === cat
                             ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border border-violet-500 text-white shadow'
                             : 'text-slate-400 border border-transparent hover:text-slate-205 hover:border-slate-800'
                             }`}
@@ -421,26 +452,77 @@ export default function AnalyticsPage() {
                 </div>
             ) : (
                 <>
+                    {/* Weekly AI Performance Report Section */}
+                    <div className="bg-gradient-to-r from-violet-900/30 via-slate-900/40 to-indigo-900/30 border border-violet-500/20 p-4 sm:p-5 rounded-2xl backdrop-blur space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <div className="p-1.5 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow">
+                                    <Sparkles className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm sm:text-base font-extrabold text-white">Weekly AI Performance Report</h3>
+                                    <p className="text-[10px] sm:text-xs text-slate-400">Groq Llama 3 behavioral summary & risk alerts</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={fetchWeeklyReport}
+                                disabled={aiReportLoading}
+                                className="self-start sm:self-auto bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl disabled:opacity-40 transition-all flex items-center gap-1.5 cursor-pointer shadow"
+                            >
+                                {aiReportLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                {aiReport ? 'Refresh Report' : 'Generate AI Report'}
+                            </button>
+                        </div>
+
+                        {aiReport && (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                                {/* 🎯 Top Win */}
+                                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-1">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                                        🎯 Top Win of the Week
+                                    </span>
+                                    <p className="text-xs text-slate-200 font-semibold">{aiReport.topWin}</p>
+                                </div>
+
+                                {/* ⚠️ Risk Alert */}
+                                <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                        ⚠️ Streak Loss Risk Alert
+                                    </span>
+                                    <p className="text-xs text-slate-200 font-semibold">{aiReport.riskAlert}</p>
+                                </div>
+
+                                {/* 💡 Custom Tip */}
+                                <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-1">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                                        💡 Custom Tip for Next Week
+                                    </span>
+                                    <p className="text-xs text-slate-200 font-semibold">{aiReport.customTip}</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     {/* behavioral insights cards */}
                     {behavioralInsights && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
                             {/* MoM Performance Comparison */}
-                            <div className="bg-slate-900/30 border border-slate-900 p-5 rounded-2xl backdrop-blur relative overflow-hidden flex flex-col justify-between min-h-[120px]">
+                            <div className="bg-slate-900/30 border border-slate-900 p-3.5 sm:p-5 rounded-2xl backdrop-blur relative overflow-hidden flex flex-col justify-between min-h-[90px] sm:min-h-[120px]">
                                 <div>
                                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">MoM Activity Compare</span>
-                                    <div className="flex items-baseline gap-2 mt-1">
-                                        <span className="text-2xl font-extrabold text-white">{behavioralInsights.rateThisMonth}%</span>
-                                        <span className="text-xs text-slate-400">vs last month ({behavioralInsights.ratePriorMonth}%)</span>
+                                    <div className="flex items-baseline gap-2 mt-0.5 sm:mt-1">
+                                        <span className="text-xl sm:text-2xl font-extrabold text-white">{behavioralInsights.rateThisMonth}%</span>
+                                        <span className="text-[11px] sm:text-xs text-slate-400">vs last month ({behavioralInsights.ratePriorMonth}%)</span>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-1 mt-3">
+                                <div className="flex items-center gap-1 mt-2 sm:mt-3">
                                     {behavioralInsights.change >= 0 ? (
-                                        <div className="flex items-center text-xs text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-lg">
+                                        <div className="flex items-center text-[11px] sm:text-xs text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-lg">
                                             <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
                                             <span>+{behavioralInsights.change}% increase</span>
                                         </div>
                                     ) : (
-                                        <div className="flex items-center text-xs text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded-lg">
+                                        <div className="flex items-center text-[11px] sm:text-xs text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded-lg">
                                             <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />
                                             <span>{behavioralInsights.change}% decrease</span>
                                         </div>
@@ -449,15 +531,15 @@ export default function AnalyticsPage() {
                             </div>
 
                             {/* Best Completion Day */}
-                            <div className="bg-slate-900/30 border border-slate-900 p-5 rounded-2xl backdrop-blur relative overflow-hidden flex flex-col justify-between min-h-[120px]">
+                            <div className="bg-slate-900/30 border border-slate-900 p-3.5 sm:p-5 rounded-2xl backdrop-blur relative overflow-hidden flex flex-col justify-between min-h-[90px] sm:min-h-[120px]">
                                 <div>
                                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Peak Routine Day</span>
-                                    <div className="flex items-baseline gap-2 mt-1">
-                                        <span className="text-2xl font-extrabold text-white">{behavioralInsights.bestDay}</span>
+                                    <div className="flex items-baseline gap-2 mt-0.5 sm:mt-1">
+                                        <span className="text-xl sm:text-2xl font-extrabold text-white">{behavioralInsights.bestDay}</span>
                                     </div>
                                 </div>
-                                <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                                    <div className="flex items-center text-violet-400 font-bold bg-violet-500/10 px-2 py-0.5 rounded-lg">
+                                <div className="mt-2 sm:mt-3 flex items-center justify-between text-xs text-slate-400">
+                                    <div className="flex items-center text-violet-400 font-bold bg-violet-500/10 px-2 py-0.5 rounded-lg text-[11px] sm:text-xs">
                                         <TrendingUp className="w-3.5 h-3.5 mr-1" />
                                         <span>{behavioralInsights.bestDayRate}% Success</span>
                                     </div>
@@ -466,15 +548,15 @@ export default function AnalyticsPage() {
                             </div>
 
                             {/* Worst Completion Day/Insight */}
-                            <div className="bg-slate-900/30 border border-slate-900 p-5 rounded-2xl backdrop-blur relative overflow-hidden flex flex-col justify-between min-h-[120px]">
+                            <div className="bg-slate-900/30 border border-slate-900 p-3.5 sm:p-5 rounded-2xl backdrop-blur relative overflow-hidden flex flex-col justify-between min-h-[90px] sm:min-h-[120px]">
                                 <div>
                                     <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Weakest Routine Day</span>
-                                    <div className="flex items-baseline gap-2 mt-1">
-                                        <span className="text-2xl font-extrabold text-slate-300">{behavioralInsights.worstDay}</span>
+                                    <div className="flex items-baseline gap-2 mt-0.5 sm:mt-1">
+                                        <span className="text-xl sm:text-2xl font-extrabold text-slate-300">{behavioralInsights.worstDay}</span>
                                     </div>
                                 </div>
-                                <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                                    <div className="flex items-center text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded-lg">
+                                <div className="mt-2 sm:mt-3 flex items-center justify-between text-xs text-slate-400">
+                                    <div className="flex items-center text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded-lg text-[11px] sm:text-xs">
                                         <Sparkles className="w-3.5 h-3.5 mr-1" />
                                         <span>{behavioralInsights.worstDayRate}% Score</span>
                                     </div>
@@ -486,10 +568,15 @@ export default function AnalyticsPage() {
 
                     {/* GitHub style dynamic calendar contribution heatmap (last 26 weeks) */}
                     <div className="bg-slate-900/30 border border-slate-900 rounded-2xl p-5 sm:p-6 backdrop-blur">
-                        <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                            <TrendingUp className="w-4 h-4 text-violet-400" />
-                            Routine Completion Frequency (Last 6 Months)
-                        </h3>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                <TrendingUp className="w-4 h-4 text-violet-400" />
+                                Routine Completion Frequency (Last 6 Months)
+                            </h3>
+                            <span className="sm:hidden text-[10px] text-violet-400 font-bold bg-violet-500/10 px-2 py-0.5 rounded-full">
+                                Swipe ➔
+                            </span>
+                        </div>
 
                         {/* Calendar Heatmap grid container */}
                         <div className="flex gap-[3px] overflow-x-auto pb-2 scrollbar-thin max-w-full">
@@ -602,7 +689,7 @@ export default function AnalyticsPage() {
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-sm font-bold text-white flex items-center gap-2">
                                 <Award className="w-4 h-4 text-amber-500" />
-                                🏆 Streak Milestone Badges & Trophy Showcase
+                                Streak Milestone Badges & Trophy Showcase
                             </h3>
                             <span className="text-xs text-slate-400 font-semibold">
                                 {stats.filter((s) => s.currentStreak >= 7 || s.longestStreak >= 7).length} / {stats.length} Habits Unlocked
@@ -664,51 +751,51 @@ export default function AnalyticsPage() {
                     </div>
 
                     {/* Cards metrics lists per task */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-4">
                         {stats.map((taskStat) => (
                             <div
                                 key={taskStat.id}
-                                className="bg-slate-900/30 border border-slate-900 rounded-2xl p-5 backdrop-blur flex justify-between items-center group hover:border-slate-800/80 transition-all shadow-lg"
+                                className="bg-slate-900/30 border border-slate-900 rounded-2xl p-3 sm:p-5 backdrop-blur flex justify-between items-center group hover:border-slate-800/80 transition-all shadow-lg"
                             >
-                                <div className="flex flex-col gap-1 max-w-[65%]">
-                                    <div className="flex items-center gap-2">
-                                        <h4 className="font-semibold text-sm text-slate-100 group-hover:text-violet-400 transition-colors truncate">
+                                <div className="flex flex-col gap-0.5 sm:gap-1 max-w-[70%]">
+                                    <div className="flex items-center gap-1.5 sm:gap-2">
+                                        <h4 className="font-semibold text-xs sm:text-sm text-slate-100 group-hover:text-violet-400 transition-colors truncate">
                                             {taskStat.name}
                                         </h4>
                                         {/* Task Badge Pills */}
                                         {taskStat.currentStreak >= 7 && (
-                                            <img src="/badge_7days.png" alt="7d" className="w-4 h-4 object-contain" title="7-Day Focus Badge Unlocked" />
+                                            <img src="/badge_7days.png" alt="7d" className="w-3.5 h-3.5 sm:w-4 sm:h-4 object-contain" title="7-Day Focus Badge Unlocked" />
                                         )}
                                         {taskStat.currentStreak >= 30 && (
-                                            <img src="/badge_30days.png" alt="30d" className="w-4 h-4 object-contain" title="30-Day Master Badge Unlocked" />
+                                            <img src="/badge_30days.png" alt="30d" className="w-3.5 h-3.5 sm:w-4 sm:h-4 object-contain" title="30-Day Master Badge Unlocked" />
                                         )}
                                         {taskStat.currentStreak >= 100 && (
-                                            <img src="/badge_100days.png" alt="100d" className="w-4 h-4 object-contain" title="100-Day Legend Badge Unlocked" />
+                                            <img src="/badge_100days.png" alt="100d" className="w-3.5 h-3.5 sm:w-4 sm:h-4 object-contain" title="100-Day Legend Badge Unlocked" />
                                         )}
                                     </div>
-                                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">{taskStat.category}</span>
-                                    <div className="flex items-center gap-3.5 mt-2">
+                                    <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-wider">{taskStat.category}</span>
+                                    <div className="flex items-center gap-1.5 sm:gap-3.5 mt-1 sm:mt-2 flex-wrap">
                                         {/* Current Streak badge */}
-                                        <div className="flex items-center text-xs text-amber-500 font-bold bg-amber-500/10 px-2.5 py-1 rounded-lg">
-                                            <Flame className="w-3.5 h-3.5 mr-1 fill-amber-500" />
+                                        <div className="flex items-center text-[10px] sm:text-xs text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg">
+                                            <Flame className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-0.5 sm:mr-1 fill-amber-500" />
                                             <span>{taskStat.currentStreak}d streak</span>
                                         </div>
 
                                         {/* Longest streak badge */}
-                                        <div className="flex items-center text-xs text-indigo-400 font-bold bg-indigo-500/10 px-2.5 py-1 rounded-lg">
-                                            <Award className="w-3.5 h-3.5 mr-1" />
+                                        <div className="flex items-center text-[10px] sm:text-xs text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg">
+                                            <Award className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-0.5 sm:mr-1" />
                                             <span>Best: {taskStat.longestStreak}d</span>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Progress Circle or Box */}
-                                <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-950 border border-slate-900 min-w-[70px]">
-                                    <Percent className="w-3.5 h-3.5 text-violet-400 mb-0.5" />
-                                    <span className="text-lg font-extrabold text-white tracking-tight leading-none">
+                                <div className="flex flex-col items-center justify-center p-2 sm:p-3 rounded-xl bg-slate-950 border border-slate-900 min-w-[55px] sm:min-w-[70px] shrink-0">
+                                    <Percent className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-violet-400 mb-0.5" />
+                                    <span className="text-base sm:text-lg font-extrabold text-white tracking-tight leading-none">
                                         {taskStat.rate}%
                                     </span>
-                                    <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-1">
+                                    <span className="text-[8px] sm:text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5 sm:mt-1">
                                         Rate
                                     </span>
                                 </div>

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { signout } from '../login/actions';
 import { Calendar, BarChart2, History as HistoryIcon, LogOut, CheckSquare } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
+import MobileNav from '@/components/MobileNav';
 
 export default async function DashboardLayout({
     children,
@@ -16,7 +17,7 @@ export default async function DashboardLayout({
     } = await supabase.auth.getUser();
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200 overflow-x-hidden max-w-full">
             {/* Background Glows */}
             <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-violet-600/5 rounded-full blur-[100px] pointer-events-none" />
             <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-indigo-600/5 rounded-full blur-[100px] pointer-events-none" />
@@ -79,36 +80,14 @@ export default async function DashboardLayout({
             </header>
 
             {/* Main Content Area */}
-            <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 relative z-10 flex flex-col">
+            <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-8 relative z-10 flex flex-col">
                 {children}
             </main>
 
             {/* Bottom Nav Bar (Mobile only) */}
-            <nav className="sm:hidden fixed bottom-0 left-0 right-0 border-t border-slate-200 dark:border-slate-900 bg-white/95 dark:bg-slate-900/80 backdrop-blur-lg flex justify-around py-2 z-50 transition-colors duration-200">
-                <Link
-                    href="/"
-                    className="flex flex-col items-center gap-0.5 text-xs text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors py-1 px-3"
-                >
-                    <Calendar className="w-5 h-5 text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors" />
-                    <span className="font-semibold">Weekly</span>
-                </Link>
-                <Link
-                    href="/history"
-                    className="flex flex-col items-center gap-0.5 text-xs text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors py-1 px-3"
-                >
-                    <HistoryIcon className="w-5 h-5 text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors" />
-                    <span className="font-semibold">History</span>
-                </Link>
-                <Link
-                    href="/analytics"
-                    className="flex flex-col items-center gap-0.5 text-xs text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors py-1 px-3"
-                >
-                    <BarChart2 className="w-5 h-5 text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors" />
-                    <span className="font-semibold">Analytics</span>
-                </Link>
-            </nav>
+            <MobileNav />
             {/* Spacer for bottom nav on mobile */}
-            <div className="sm:hidden h-16" />
+            <div className="sm:hidden h-20" />
         </div>
     );
 }

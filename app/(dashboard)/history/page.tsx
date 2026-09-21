@@ -11,7 +11,7 @@ import {
     subMonths,
     isToday,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2, Check, X, ShieldAlert, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2, Check, X, ShieldAlert, Download, Lock } from 'lucide-react';
 
 interface Task {
     id: string;
@@ -39,6 +39,7 @@ export default function HistoryPage() {
     const [entries, setEntries] = useState<Entry[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'matrix'>('cards');
 
     // Filter Categories
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('All');
@@ -138,6 +139,11 @@ export default function HistoryPage() {
 
     const handleToggle = async (taskId: string, dateStr: string, currentCompleted: boolean) => {
         if (!userId) return;
+
+        // Guard against future dates
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        if (dateStr > todayStr) return;
+
         const newCompleted = !currentCompleted;
 
         // Perform mobile haptic vibration feedback
@@ -235,30 +241,31 @@ export default function HistoryPage() {
                     </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1 transition-colors">
+                <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
+                    {/* Month Navigator */}
+                    <div className="flex-1 sm:flex-initial flex items-center justify-between bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1 h-10 transition-colors">
                         <button
                             onClick={prevMonth}
-                            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all font-medium select-none cursor-pointer"
+                            className="h-8 w-7 sm:w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all font-medium select-none cursor-pointer"
                             aria-label="Previous month"
                         >
-                            <ChevronLeft className="w-5 h-5" />
+                            <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="px-4 text-xs sm:text-sm font-bold text-slate-700 dark:text-white min-w-[120px] text-center select-none">
-                            {format(currentMonth, 'MMMM yyyy')}
+                        <span className="px-1.5 sm:px-4 text-xs font-bold text-slate-700 dark:text-white text-center select-none truncate">
+                            {format(currentMonth, 'MMM yyyy')}
                         </span>
                         <button
                             onClick={nextMonth}
-                            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all font-medium select-none cursor-pointer"
+                            className="h-8 w-7 sm:w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all font-medium select-none cursor-pointer"
                             aria-label="Next month"
                         >
-                            <ChevronRight className="w-5 h-5" />
+                            <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>
 
                     {/* Jump Picker */}
-                    <div className="relative flex items-center bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-slate-500 dark:text-slate-400 focus-within:text-slate-800 focus-within:dark:text-white focus-within:border-slate-400 focus-within:dark:border-slate-700 transition-all">
-                        <CalendarIcon className="w-4 h-4 mr-2" />
+                    <div className="flex-1 sm:flex-initial relative flex items-center justify-center bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 sm:px-3 h-10 text-slate-500 dark:text-slate-400 focus-within:text-slate-800 focus-within:dark:text-white focus-within:border-slate-400 focus-within:dark:border-slate-700 transition-all">
+                        <CalendarIcon className="w-4 h-4 mr-1.5 shrink-0" />
                         <input
                             type="month"
                             value={format(currentMonth, 'yyyy-MM')}
@@ -268,7 +275,7 @@ export default function HistoryPage() {
                                     setCurrentMonth(new Date(parseInt(y), parseInt(m) - 1, 1));
                                 }
                             }}
-                            className="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none w-28 cursor-pointer select-none"
+                            className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none w-full sm:w-auto min-w-[110px] cursor-pointer select-none"
                         />
                     </div>
                 </div>
@@ -303,6 +310,107 @@ export default function HistoryPage() {
                 </button>
             </div>
 
+            {/* Mobile View Switcher (Mobile Only) */}
+            <div className="sm:hidden flex items-center justify-between bg-white dark:bg-slate-900/40 p-2.5 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-all">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 pl-1">Mobile View:</span>
+                <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl">
+                    <button
+                        type="button"
+                        onClick={() => setMobileViewMode('cards')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${mobileViewMode === 'cards'
+                            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                            }`}
+                    >
+                        📱 Habit Cards
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMobileViewMode('matrix')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${mobileViewMode === 'matrix'
+                            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                            }`}
+                    >
+                        📊 31-Day Grid
+                    </button>
+                </div>
+            </div>
+
+            {/* Mobile Habit Summary Cards (Mobile Only - Cards View) */}
+            {mobileViewMode === 'cards' && !loading && filteredTasks.length > 0 && (
+                <div className="sm:hidden flex flex-col gap-4">
+                    {filteredTasks.map((task) => {
+                        const completedDaysCount = daysInMonth.filter((d) => {
+                            const dateStr = format(d, 'yyyy-MM-dd');
+                            return optimisticEntries.some((e) => e.task_id === task.id && e.entry_date === dateStr && e.completed);
+                        }).length;
+                        const totalDays = daysInMonth.length;
+                        const pct = Math.round((completedDaysCount / totalDays) * 100);
+
+                        return (
+                            <div
+                                key={task.id}
+                                className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-900 p-4 rounded-2xl flex flex-col gap-3 backdrop-blur shadow-sm"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h4 className="font-bold text-base text-slate-800 dark:text-white">{task.name}</h4>
+                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                            {task.category || 'General'}
+                                        </span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-sm font-extrabold text-violet-600 dark:text-violet-400">
+                                            {completedDaysCount}/{totalDays} days
+                                        </span>
+                                        <span className="block text-[10px] font-bold text-slate-400">{pct}% complete</span>
+                                    </div>
+                                </div>
+
+                                <div className="w-full bg-slate-100 dark:bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-200/50 dark:border-slate-850">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full transition-all duration-300"
+                                        style={{ width: `${pct}%` }}
+                                    />
+                                </div>
+
+                                {/* Mini Day Grid preview */}
+                                <div className="grid grid-cols-7 gap-1 pt-1">
+                                    {daysInMonth.map((day, idx) => {
+                                        const dateStr = format(day, 'yyyy-MM-dd');
+                                        const todayStr = format(new Date(), 'yyyy-MM-dd');
+                                        const isFuture = dateStr > todayStr;
+                                        const isCompleted = optimisticEntries.some(
+                                            (e) => e.task_id === task.id && e.entry_date === dateStr && e.completed
+                                        );
+                                        const isDayToday = isToday(day);
+
+                                        return (
+                                            <button
+                                                key={idx}
+                                                type="button"
+                                                disabled={isFuture}
+                                                onClick={() => !isFuture && handleToggle(task.id, dateStr, isCompleted)}
+                                                className={`h-7 rounded-lg text-[10px] font-bold flex items-center justify-center transition-all ${isFuture
+                                                    ? 'bg-slate-100/30 dark:bg-slate-950/20 text-slate-300 dark:text-slate-800 opacity-30 cursor-not-allowed border border-slate-200/30 dark:border-slate-900/30'
+                                                    : isCompleted
+                                                        ? 'bg-violet-600 text-white shadow-sm cursor-pointer'
+                                                        : 'bg-slate-100 dark:bg-slate-950/60 text-slate-400 dark:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-900 cursor-pointer'
+                                                    } ${isDayToday ? 'ring-2 ring-emerald-500' : ''}`}
+                                                title={isFuture ? 'Future dates cannot be filled' : `${format(day, 'MMM d')}: ${isCompleted ? 'Completed' : 'Not completed'}`}
+                                            >
+                                                {isFuture ? <Lock className="w-2.5 h-2.5 text-slate-400/50 dark:text-slate-700" /> : format(day, 'd')}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
             {error && (
                 <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 px-4 py-3 rounded-xl text-sm animate-slide-in">
                     <ShieldAlert className="w-5 h-5 flex-shrink-0" />
@@ -313,8 +421,8 @@ export default function HistoryPage() {
                 </div>
             )}
 
-            {/* Grid Container */}
-            <div className="bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex flex-col justify-start relative transition-colors duration-200 min-h-[300px]">
+            {/* Grid Container (Always flex on sm: iPad/Desktop, and flex on mobile when matrix mode selected) */}
+            <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex-col justify-start relative transition-colors duration-200 min-h-[300px] ${mobileViewMode === 'matrix' ? 'flex' : 'hidden sm:flex'}`}>
                 {loading ? (
                     <div className="flex-1 flex flex-col items-center justify-center p-12 gap-3">
                         <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
@@ -375,6 +483,8 @@ export default function HistoryPage() {
                                         </td>
                                         {daysInMonth.map((day, idx) => {
                                             const dateStr = format(day, 'yyyy-MM-dd');
+                                            const todayStr = format(new Date(), 'yyyy-MM-dd');
+                                            const isFuture = dateStr > todayStr;
                                             const entryMatch = optimisticEntries.find(
                                                 (e) => e.task_id === task.id && e.entry_date === dateStr
                                             );
@@ -387,14 +497,18 @@ export default function HistoryPage() {
                                                 >
                                                     <div className="flex justify-center items-center">
                                                         <button
-                                                            onClick={() => handleToggle(task.id, dateStr, isCompleted)}
+                                                            onClick={() => !isFuture && handleToggle(task.id, dateStr, isCompleted)}
+                                                            disabled={isFuture}
                                                             type="button"
-                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center focus:outline-none transition-all active:scale-90 border cursor-pointer ${isCompleted
-                                                                ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow shadow-violet-500/20'
-                                                                : 'bg-slate-100 dark:bg-slate-950/40 hover:bg-slate-200 dark:hover:bg-slate-950 border-slate-205 dark:border-slate-850 text-transparent hover:text-slate-400 dark:hover:text-slate-700'
+                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center focus:outline-none transition-all border ${isFuture
+                                                                ? 'bg-slate-100/30 dark:bg-slate-950/20 border-slate-200/40 dark:border-slate-900/30 text-slate-300 dark:text-slate-700 opacity-30 cursor-not-allowed'
+                                                                : isCompleted
+                                                                    ? 'bg-gradient-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow shadow-violet-500/20 cursor-pointer active:scale-90'
+                                                                    : 'bg-slate-100 dark:bg-slate-950/40 hover:bg-slate-200 dark:hover:bg-slate-950 border-slate-205 dark:border-slate-850 text-transparent hover:text-slate-400 dark:hover:text-slate-700 cursor-pointer active:scale-90'
                                                                 }`}
+                                                            title={isFuture ? 'Future dates cannot be filled' : undefined}
                                                         >
-                                                            <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                                                            {isFuture ? <Lock className="w-3 h-3 text-slate-400/40 dark:text-slate-700" /> : <Check className="w-3.5 h-3.5 stroke-[3px]" />}
                                                         </button>
                                                     </div>
                                                 </td>
