@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Calendar, BarChart2, History as HistoryIcon, Sparkles } from 'lucide-react';
+import { Calendar, BarChart2, History as HistoryIcon } from 'lucide-react';
 
 export default function MobileNav() {
     const pathname = usePathname();
@@ -37,7 +37,7 @@ export default function MobileNav() {
                         key={item.href}
                         href={item.href}
                         className={`flex flex-col items-center justify-center flex-1 py-1.5 px-2 rounded-xl transition-all duration-200 active:scale-95 ${isActive
-                            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/25 font-bold scale-[1.02]'
+                            ? 'bg-linear-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/25 font-bold scale-[1.02]'
                             : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium'
                             }`}
                     >

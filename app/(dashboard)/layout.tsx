@@ -1,9 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
-import { signout } from '../login/actions';
-import { Calendar, BarChart2, History as HistoryIcon, LogOut, CheckSquare } from 'lucide-react';
+import { getCurrentUser } from '@/lib/supabase/user';
+import { Calendar, BarChart2, History as HistoryIcon, CheckSquare } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
+import SignOutButton from '@/components/SignOutButton';
 import MobileNav from '@/components/MobileNav';
 
 export default async function DashboardLayout({
@@ -11,10 +11,8 @@ export default async function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
-    const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
+    // Cached per request, so pages calling getCurrentUser() don't hit Supabase again
+    const user = await getCurrentUser();
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200 overflow-x-hidden max-w-full">
@@ -28,10 +26,10 @@ export default async function DashboardLayout({
                     <div className="flex justify-between h-16 items-center">
                         {/* Logo */}
                         <div className="flex items-center gap-1.5 sm:gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
+                            <div className="w-8 h-8 rounded-lg bg-linear-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
                                 <CheckSquare className="w-5 h-5 text-white" />
                             </div>
-                            <span className="font-bold text-base sm:text-lg bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400">
+                            <span className="font-bold text-base sm:text-lg bg-clip-text text-transparent bg-linear-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400">
                                 FocusFlow
                             </span>
                         </div>
@@ -65,15 +63,7 @@ export default async function DashboardLayout({
                         <div className="flex items-center gap-2 sm:gap-3">
                             <ThemeToggle />
                             <span className="hidden lg:block text-xs text-slate-500 dark:text-slate-400 max-w-[140px] truncate">{user?.email}</span>
-                            <form action={signout}>
-                                <button
-                                    type="submit"
-                                    className="flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-2 py-1.5 sm:px-3 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-all cursor-pointer select-none"
-                                >
-                                    <LogOut className="w-4 h-4" />
-                                    <span className="hidden lg:inline">Sign Out</span>
-                                </button>
-                            </form>
+                            <SignOutButton />
                         </div>
                     </div>
                 </div>

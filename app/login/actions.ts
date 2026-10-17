@@ -4,17 +4,24 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
-export async function login(state: any, formData: FormData) {
-    const supabase = await createClient();
+export type AuthResult = { error?: string; success?: string } | undefined;
 
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
+// FormData values can be File objects; only accept non-empty strings
+function readCredentials(formData: FormData) {
+    const email = formData.get('email');
+    const password = formData.get('password');
+    if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) return null;
+    return { email: email.trim(), password };
+}
 
-    if (!email || !password) {
+export async function login(formData: FormData): Promise<AuthResult> {
+    const credentials = readCredentials(formData);
+    if (!credentials) {
         return { error: 'Email and password are required.' };
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword(credentials);
 
     if (error) {
         return { error: error.message };
@@ -24,20 +31,14 @@ export async function login(state: any, formData: FormData) {
     redirect('/');
 }
 
-export async function signup(state: any, formData: FormData) {
-    const supabase = await createClient();
-
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
-
-    if (!email || !password) {
+export async function signup(formData: FormData): Promise<AuthResult> {
+    const credentials = readCredentials(formData);
+    if (!credentials) {
         return { error: 'Email and password are required.' };
     }
 
-    const { error } = await supabase.auth.signUp({
-        email,
-        password,
-    });
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signUp(credentials);
 
     if (error) {
         return { error: error.message };

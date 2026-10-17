@@ -1,0 +1,102 @@
+'use client';
+
+import { useState, type FormEvent } from 'react';
+import { Plus, X, Loader2 } from 'lucide-react';
+import { HABIT_CATEGORIES } from '@/lib/categories';
+
+interface AddHabitFormProps {
+    adding: boolean;
+    // Resolves to whether the habit was saved
+    onAdd: (name: string, category: string) => Promise<boolean>;
+}
+
+// Collapsible "Add New Habit" form
+export default function AddHabitForm({ adding, onAdd }: AddHabitFormProps) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [name, setName] = useState('');
+    const [category, setCategory] = useState<string>('General');
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!name.trim()) return;
+        if (await onAdd(name.trim(), category)) {
+            setName('');
+            setIsOpen(false);
+        }
+    };
+
+    if (!isOpen) {
+        return (
+            <button
+                type="button"
+                onClick={() => setIsOpen(true)}
+                className="flex items-center justify-center gap-2 bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-sm py-3 px-5 rounded-2xl shadow-lg shadow-violet-500/20 active:scale-[0.98] transition-all cursor-pointer border border-violet-500/30 w-full sm:w-auto self-start mt-auto"
+            >
+                <Plus className="w-4 h-4" />
+                <span>Add New Habit</span>
+            </button>
+        );
+    }
+
+    return (
+        <form
+            onSubmit={handleSubmit}
+            className="flex flex-col gap-3 bg-white dark:bg-slate-900/60 p-4 border border-slate-200 dark:border-slate-800 rounded-2xl backdrop-blur mt-auto transition-all duration-200 relative"
+        >
+            <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-wider select-none pointer-events-none">New Habit Entry</span>
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                    aria-label="Close form"
+                >
+                    <X className="w-4 h-4" />
+                </button>
+            </div>
+
+            <div className="flex gap-2 flex-wrap items-center" role="group" aria-label="Category">
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-wider mr-1 select-none pointer-events-none">Category:</span>
+                {HABIT_CATEGORIES.map((cat) => (
+                    <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setCategory(cat)}
+                        aria-pressed={category === cat}
+                        className={`px-3 py-1 rounded-full text-xs font-bold select-none cursor-pointer transition-all border ${category === cat
+                            ? 'bg-linear-to-tr from-violet-600 to-indigo-600 border-violet-500 text-white shadow shadow-violet-600/30'
+                            : 'bg-slate-100 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-400 dark:hover:border-slate-700'
+                            }`}
+                    >
+                        {cat}
+                    </button>
+                ))}
+            </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={adding}
+                    aria-label="New habit name"
+                    placeholder="I want to work on..."
+                    className="flex-1 min-w-0 appearance-none bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3.5 sm:px-4 py-2.5 rounded-xl text-sm placeholder-slate-400 dark:placeholder-slate-500 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+                    autoFocus
+                />
+                <button
+                    type="submit"
+                    disabled={adding || !name.trim()}
+                    className="flex items-center justify-center bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-bold px-4 sm:px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all select-none duration-150 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                    {adding ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                        <>
+                            <Plus className="w-4 h-4 mr-1.5" />
+                            Add Task
+                        </>
+                    )}
+                </button>
+            </div>
+        </form>
+    );
+}

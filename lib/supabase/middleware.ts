@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+const PUBLIC_ROUTES = ['/login', '/signup'];
+
 export async function updateSession(request: NextRequest) {
     let supabaseResponse = NextResponse.next({
         request,
@@ -33,11 +35,16 @@ export async function updateSession(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     const path = request.nextUrl.pathname;
-    const isProtectedRoute =
-        path === '/' || path.startsWith('/history') || path.startsWith('/analytics');
+    // Protected by default: anything not explicitly public requires a session
+    const isPublicRoute = PUBLIC_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+
+    // API routes get a JSON 401 instead of an HTML redirect
+    if (!user && path.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Redirection rules
-    if (!user && isProtectedRoute) {
+    if (!user && !isPublicRoute) {
         const url = request.nextUrl.clone();
         url.pathname = '/login';
         return NextResponse.redirect(url);

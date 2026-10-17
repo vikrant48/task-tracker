@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import { useState, useTransition, type FormEvent } from 'react';
 import { login, signup } from './actions';
 
 export default function LoginPage() {
@@ -9,7 +9,7 @@ export default function LoginPage() {
     const [success, setSuccess] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError(null);
         setSuccess(null);
@@ -19,12 +19,12 @@ export default function LoginPage() {
 
         startTransition(async () => {
             if (mode === 'login') {
-                const result = await login(null, formData);
+                const result = await login(formData);
                 if (result?.error) {
                     setError(result.error);
                 }
             } else {
-                const result = await signup(null, formData);
+                const result = await signup(formData);
                 if (result?.error) {
                     setError(result.error);
                 } else if (result?.success) {
@@ -43,7 +43,7 @@ export default function LoginPage() {
 
             <div className="sm:mx-auto sm:w-full sm:max-w-md z-10">
                 <h1 className="text-center text-4xl font-extrabold text-white tracking-tight sm:text-5xl">
-                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-indigo-400">
+                    <span className="bg-clip-text text-transparent bg-linear-to-r from-violet-400 to-indigo-400">
                         FocusFlow
                     </span>
                 </h1>
@@ -57,6 +57,8 @@ export default function LoginPage() {
                     {/* Tab switching */}
                     <div className="flex border-b border-slate-800 mb-6">
                         <button
+                            type="button"
+                            aria-pressed={mode === 'login'}
                             onClick={() => {
                                 setMode('login');
                                 setError(null);
@@ -70,6 +72,8 @@ export default function LoginPage() {
                             Sign In
                         </button>
                         <button
+                            type="button"
+                            aria-pressed={mode === 'signup'}
                             onClick={() => {
                                 setMode('signup');
                                 setError(null);
@@ -111,7 +115,7 @@ export default function LoginPage() {
                                     id="password"
                                     name="password"
                                     type="password"
-                                    autoComplete="current-password"
+                                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                                     required
                                     className="appearance-none block w-full px-3 py-2 border border-slate-800 rounded-lg bg-slate-950 placeholder-slate-500 text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all sm:text-sm"
                                     placeholder="••••••••"
@@ -135,7 +139,7 @@ export default function LoginPage() {
                             <button
                                 type="submit"
                                 disabled={isPending}
-                                className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-md text-sm font-medium text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-md text-sm font-medium text-white bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isPending ? 'Processing...' : mode === 'login' ? 'Sign In' : 'Create Account'}
                             </button>

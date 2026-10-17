@@ -1,7 +1,30 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Sparkles, Mic, MicOff, Send, X, Plus, CheckCircle2, Loader2, Bot, Target, MessageSquare } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Sparkles, Mic, MicOff, Send, X, Plus, CheckCircle2, Loader2, Bot, Target, MessageSquare, ShieldAlert } from 'lucide-react';
+import type { CoachHabitStat } from '@/lib/ai-schemas';
+
+// Minimal Web Speech API types (not part of TypeScript's DOM lib)
+interface SpeechRecognitionLike {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onstart: (() => void) | null;
+    onend: (() => void) | null;
+    onerror: (() => void) | null;
+    onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+    start(): void;
+    stop(): void;
+}
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
+    const w = window as Window & {
+        SpeechRecognition?: SpeechRecognitionConstructor;
+        webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    return w.SpeechRecognition ?? w.webkitSpeechRecognition;
+}
 
 interface Task {
     id: string;
@@ -11,12 +34,30 @@ interface Task {
 
 interface AICoachDrawerProps {
     tasks: Task[];
-    userId: string | null;
-    onAddTasksBatch?: (newTasks: { name: string; category: string }[]) => Promise<void>;
-    onToggleTaskMatch?: (taskId: string) => void;
+    // Real per-habit numbers sent to the AI coach
+    buildCoachStats: () => CoachHabitStat[];
+    // Resolves to whether the habits were saved
+    onAddTasksBatch?: (newTasks: { name: string; category: string }[]) => Promise<boolean>;
+    // Marks a habit done for today (never un-checks). Returns false for unknown ids.
+    onMarkTaskDone?: (taskId: string) => boolean;
 }
 
-export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggleTaskMatch }: AICoachDrawerProps) {
+// Limits mirror the /api/ai request schema so valid input is never rejected
+const MAX_TASKS = 100;
+const MAX_NAME_LENGTH = 120;
+const MAX_INPUT_LENGTH = 300;
+
+async function postAI(body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+    const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+}
+
+export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch, onMarkTaskDone }: AICoachDrawerProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'log' | 'breakdown' | 'coach'>('log');
 
@@ -31,23 +72,29 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
     const [breakdownLoading, setBreakdownLoading] = useState(false);
     const [generatedHabits, setGeneratedHabits] = useState<{ name: string; category: string }[]>([]);
     const [addSuccessMsg, setAddSuccessMsg] = useState<string | null>(null);
+    const [breakdownError, setBreakdownError] = useState<string | null>(null);
+    const [addingHabits, setAddingHabits] = useState(false);
 
     // AI Coach State
     const [coachAdvice, setCoachAdvice] = useState<string | null>(null);
+    const [coachError, setCoachError] = useState<string | null>(null);
     const [coachLoading, setCoachLoading] = useState(false);
 
-    // Handle Voice Dictation using Web Speech API
-    const handleVoiceToggle = () => {
-        if (typeof window === 'undefined') return;
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // Voice dictation (Web Speech API). Kept in a ref so the mic button can actually stop it.
+    const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
-        if (!SpeechRecognition) {
-            alert('Voice dictation is not supported on this browser. Please type your message.');
+    // Stop listening if the component unmounts mid-dictation
+    useEffect(() => () => recognitionRef.current?.stop(), []);
+
+    const handleVoiceToggle = () => {
+        if (isListening) {
+            recognitionRef.current?.stop();
             return;
         }
 
-        if (isListening) {
-            setIsListening(false);
+        const SpeechRecognition = getSpeechRecognition();
+        if (!SpeechRecognition) {
+            alert('Voice dictation is not supported on this browser. Please type your message.');
             return;
         }
 
@@ -58,14 +105,17 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
             recognition.lang = 'en-US';
 
             recognition.onstart = () => setIsListening(true);
-            recognition.onend = () => setIsListening(false);
+            recognition.onend = () => {
+                setIsListening(false);
+                recognitionRef.current = null;
+            };
             recognition.onerror = () => setIsListening(false);
-
-            recognition.onresult = (event: any) => {
-                const transcript = event.results[0][0].transcript;
-                setLogInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+            recognition.onresult = (event) => {
+                const transcript = event.results[0]?.[0]?.transcript;
+                if (transcript) setLogInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
             };
 
+            recognitionRef.current = recognition;
             recognition.start();
         } catch (e) {
             console.error('Speech recognition error:', e);
@@ -73,8 +123,13 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
         }
     };
 
+    const closeDrawer = () => {
+        recognitionRef.current?.stop();
+        setIsOpen(false);
+    };
+
     // Handle Natural Language Logging
-    const handleNaturalLog = async (e: React.FormEvent) => {
+    const handleNaturalLog = async (e: FormEvent) => {
         e.preventDefault();
         if (!logInput.trim() || logLoading) return;
 
@@ -82,33 +137,36 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
         setLogFeedback(null);
 
         try {
-            const res = await fetch('/api/ai', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'natural_log',
-                    payload: {
-                        input: logInput,
-                        tasks: tasks.map(t => ({ id: t.id, name: t.name })),
-                    },
-                }),
+            const { ok, data } = await postAI({
+                action: 'natural_log',
+                payload: {
+                    input: logInput.trim().slice(0, MAX_INPUT_LENGTH),
+                    tasks: tasks.slice(0, MAX_TASKS).map((t) => ({ id: t.id, name: t.name.slice(0, MAX_NAME_LENGTH) })),
+                },
             });
 
-            const data = await res.json();
-            if (data.matchedTaskIds && Array.isArray(data.matchedTaskIds)) {
-                let count = 0;
-                data.matchedTaskIds.forEach((taskId: string) => {
-                    if (onToggleTaskMatch) {
-                        onToggleTaskMatch(taskId);
-                        count++;
-                    }
-                });
-                setLogFeedback(data.explanation || `Successfully completed ${count} habit${count !== 1 ? 's' : ''}!`);
+            if (!ok) {
+                setLogFeedback(typeof data.error === 'string' ? data.error : 'Failed to process natural log. Please try again.');
+                return;
+            }
+
+            // Only accept ids of the user's actual habits (the model can hallucinate ids), de-duplicated
+            const knownIds = new Set(tasks.map((t) => t.id));
+            const matchedIds: string[] = Array.isArray(data.matchedTaskIds)
+                ? Array.from(new Set(data.matchedTaskIds.filter((id: unknown): id is string => typeof id === 'string' && knownIds.has(id))))
+                : [];
+
+            if (matchedIds.length > 0 && onMarkTaskDone) {
+                const count = matchedIds.filter((taskId) => onMarkTaskDone(taskId)).length;
+                const summary = `Marked ${count} habit${count !== 1 ? 's' : ''} as done for today.`;
+                const explanation = typeof data.explanation === 'string' ? data.explanation : '';
+                setLogFeedback(explanation ? `${summary} ${explanation}` : summary);
                 setLogInput('');
             } else {
                 setLogFeedback('Could not match any active habits. Try rephrasing!');
             }
         } catch (err) {
+            console.error('Error processing natural log:', err);
             setLogFeedback('Failed to process natural log. Please try again.');
         } finally {
             setLogLoading(false);
@@ -116,32 +174,31 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
     };
 
     // Handle Goal Breakdown
-    const handleGoalBreakdown = async (e: React.FormEvent) => {
+    const handleGoalBreakdown = async (e: FormEvent) => {
         e.preventDefault();
         if (!goalInput.trim() || breakdownLoading) return;
 
         setBreakdownLoading(true);
         setGeneratedHabits([]);
         setAddSuccessMsg(null);
+        setBreakdownError(null);
 
         try {
-            const res = await fetch('/api/ai', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'breakdown',
-                    payload: { goal: goalInput },
-                }),
+            const { ok, data } = await postAI({
+                action: 'breakdown',
+                payload: { goal: goalInput.trim().slice(0, MAX_INPUT_LENGTH) },
             });
 
-            const data = await res.json();
-            if (data.habits && Array.isArray(data.habits)) {
-                setGeneratedHabits(data.habits);
+            if (ok && Array.isArray(data.habits) && data.habits.length > 0) {
+                setGeneratedHabits(data.habits as { name: string; category: string }[]);
             } else {
-                alert('Could not break down goal. Please try a different prompt!');
+                setBreakdownError(
+                    typeof data.error === 'string' ? data.error : 'Could not break down that goal. Please try a different prompt!'
+                );
             }
         } catch (err) {
             console.error('Error generating habits:', err);
+            setBreakdownError('Could not reach the AI service. Please try again.');
         } finally {
             setBreakdownLoading(false);
         }
@@ -149,14 +206,20 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
 
     // Handle Add All Breakdown Habits
     const handleAddAllHabits = async () => {
-        if (!generatedHabits.length || !onAddTasksBatch) return;
+        if (!generatedHabits.length || !onAddTasksBatch || addingHabits) return;
+        setAddingHabits(true);
+        setBreakdownError(null);
         try {
-            await onAddTasksBatch(generatedHabits);
-            setAddSuccessMsg(`Successfully added ${generatedHabits.length} micro-habits!`);
-            setGeneratedHabits([]);
-            setGoalInput('');
-        } catch (e) {
-            console.error('Error adding micro habits:', e);
+            const saved = await onAddTasksBatch(generatedHabits);
+            if (saved) {
+                setAddSuccessMsg(`Successfully added ${generatedHabits.length} micro-habits!`);
+                setGeneratedHabits([]);
+                setGoalInput('');
+            } else {
+                setBreakdownError('Could not save these habits. Please try again.');
+            }
+        } finally {
+            setAddingHabits(false);
         }
     };
 
@@ -164,22 +227,20 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
     const fetchCoachAdvice = async () => {
         if (coachLoading) return;
         setCoachLoading(true);
+        setCoachError(null);
         try {
-            const res = await fetch('/api/ai', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'coach',
-                    payload: {
-                        tasks: tasks.map(t => t.name),
-                        completionStats: { totalActive: tasks.length },
-                    },
-                }),
+            const { ok, data } = await postAI({
+                action: 'coach',
+                payload: { habits: buildCoachStats() },
             });
-            const data = await res.json();
-            setCoachAdvice(data.result || 'Keep focusing on small 1% daily improvements!');
+            if (ok && typeof data.result === 'string') {
+                setCoachAdvice(data.result);
+            } else {
+                setCoachError(typeof data.error === 'string' ? data.error : 'Could not get coaching advice. Please try again.');
+            }
         } catch (e) {
-            setCoachAdvice('Focus on consistency! Complete 1 micro-habit today to build momentum.');
+            console.error('Error fetching coach advice:', e);
+            setCoachError('Could not reach the AI service. Please try again.');
         } finally {
             setCoachLoading(false);
         }
@@ -192,7 +253,7 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                 <button
                     onClick={() => setIsOpen(true)}
                     type="button"
-                    className="flex items-center gap-2 bg-gradient-to-tr from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-extrabold text-xs sm:text-sm px-4 py-3 rounded-full shadow-lg shadow-violet-600/30 border border-violet-400/40 backdrop-blur active:scale-95 transition-all cursor-pointer group"
+                    className="flex items-center gap-2 bg-linear-to-tr from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-extrabold text-xs sm:text-sm px-4 py-3 rounded-full shadow-lg shadow-violet-600/30 border border-violet-400/40 backdrop-blur active:scale-95 transition-all cursor-pointer group"
                 >
                     <Sparkles className="w-4 h-4 text-amber-300 animate-pulse group-hover:rotate-12 transition-transform" />
                     <span>FocusFlow AI</span>
@@ -201,9 +262,17 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
 
             {/* Slide-over Drawer / Mobile Bottom Sheet Backdrop */}
             {isOpen && (
-                <div className="fixed inset-0 z-[100] flex flex-col justify-end sm:justify-start sm:items-end bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+                <div
+                    className="fixed inset-0 z-100 flex flex-col justify-end sm:justify-start sm:items-end bg-slate-950/75 backdrop-blur-sm"
+                    onKeyDown={(e) => { if (e.key === 'Escape') closeDrawer(); }}
+                >
                     {/* Main Drawer Panel */}
-                    <div className="w-full max-w-md bg-white dark:bg-slate-950 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-800 h-[92vh] sm:h-full rounded-t-3xl sm:rounded-none flex flex-col shadow-2xl animate-slide-in-right overflow-hidden">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="ai-drawer-title"
+                        className="w-full max-w-md bg-white dark:bg-slate-950 border-t sm:border-t-0 sm:border-l border-slate-200 dark:border-slate-800 h-[92vh] sm:h-full rounded-t-3xl sm:rounded-none flex flex-col shadow-2xl overflow-hidden"
+                    >
 
                         {/* Mobile Handle Pill */}
                         <div className="pt-2 pb-1 bg-slate-50 dark:bg-slate-900/40 sm:hidden flex justify-center">
@@ -213,16 +282,19 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                         {/* Drawer Header */}
                         <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-900 flex items-center justify-between bg-slate-50 dark:bg-slate-900/40">
                             <div className="flex items-center gap-2">
-                                <div className="p-2 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-md">
+                                <div className="p-2 rounded-xl bg-linear-to-tr from-violet-600 to-indigo-600 text-white shadow-md">
                                     <Bot className="w-5 h-5" />
                                 </div>
                                 <div>
-                                    <h3 className="font-extrabold text-sm text-slate-850 dark:text-white">FocusFlow AI Assistant</h3>
-                                    <span className="text-[10px] text-violet-600 dark:text-violet-400 font-bold">Powered by Groq Llama 3</span>
+                                    <h3 id="ai-drawer-title" className="font-extrabold text-sm text-slate-800 dark:text-white">FocusFlow AI Assistant</h3>
+                                    <span className="text-[10px] text-violet-600 dark:text-violet-400 font-bold">Powered by Groq</span>
                                 </div>
                             </div>
                             <button
-                                onClick={() => setIsOpen(false)}
+                                type="button"
+                                autoFocus
+                                onClick={closeDrawer}
+                                aria-label="Close AI assistant"
                                 className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
                             >
                                 <X className="w-5 h-5" />
@@ -275,7 +347,7 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                             {activeTab === 'log' && (
                                 <div className="space-y-4">
                                     <div className="bg-violet-500/10 border border-violet-500/20 p-3 rounded-xl text-xs text-violet-700 dark:text-violet-300">
-                                        🗣️ <strong>Speak or Type</strong>: Describe what habits you finished today (e.g. <em>"Completed reading and drank 2L water"</em>) and AI will check them off automatically!
+                                        🗣️ <strong>Speak or Type</strong>: Describe what habits you finished today (e.g. <em>&ldquo;Completed reading and drank 2L water&rdquo;</em>) and AI will check them off automatically!
                                     </div>
 
                                     <form onSubmit={handleNaturalLog} className="space-y-3">
@@ -312,7 +384,7 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
 
                                     {logFeedback && (
                                         <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs rounded-xl flex items-center gap-2">
-                                            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+                                            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
                                             <span>{logFeedback}</span>
                                         </div>
                                     )}
@@ -323,7 +395,7 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                             {activeTab === 'breakdown' && (
                                 <div className="space-y-4">
                                     <div className="bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-xl text-xs text-indigo-700 dark:text-indigo-300">
-                                        🎯 Enter any big goal (e.g. <em>"Prepare for Marathon"</em> or <em>"Learn Next.js"</em>) and AI will convert it into 3–4 daily micro-habits!
+                                        🎯 Enter any big goal (e.g. <em>&ldquo;Prepare for Marathon&rdquo;</em> or <em>&ldquo;Learn Next.js&rdquo;</em>) and AI will convert it into 3–4 daily micro-habits!
                                     </div>
 
                                     <form onSubmit={handleGoalBreakdown} className="flex gap-2">
@@ -350,9 +422,10 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                                                 <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">Suggested Daily Micro-Habits:</span>
                                                 <button
                                                     onClick={handleAddAllHabits}
-                                                    className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                                    disabled={addingHabits}
+                                                    className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
-                                                    <Plus className="w-3 h-3" />
+                                                    {addingHabits ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
                                                     Add All to Tracker
                                                 </button>
                                             </div>
@@ -370,8 +443,15 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
 
                                     {addSuccessMsg && (
                                         <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs rounded-xl flex items-center gap-2">
-                                            <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                                             <span>{addSuccessMsg}</span>
+                                        </div>
+                                    )}
+
+                                    {breakdownError && (
+                                        <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 text-xs rounded-xl flex items-center gap-2">
+                                            <ShieldAlert className="w-4 h-4 shrink-0" />
+                                            <span>{breakdownError}</span>
                                         </div>
                                     )}
                                 </div>
@@ -380,7 +460,7 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                             {/* TAB 3: AI Coach Advice */}
                             {activeTab === 'coach' && (
                                 <div className="space-y-4">
-                                    <div className="p-4 bg-gradient-to-tr from-violet-600/10 via-indigo-600/10 to-emerald-500/10 border border-violet-500/20 rounded-2xl space-y-3">
+                                    <div className="p-4 bg-linear-to-tr from-violet-600/10 via-indigo-600/10 to-emerald-500/10 border border-violet-500/20 rounded-2xl space-y-3">
                                         <div className="flex items-center gap-2">
                                             <Sparkles className="w-4 h-4 text-amber-500" />
                                             <h4 className="font-extrabold text-xs text-slate-800 dark:text-white">Personal Behavioral Insight</h4>
@@ -391,6 +471,11 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                                                 <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
                                                 <span>Analyzing completion patterns...</span>
                                             </div>
+                                        ) : coachError ? (
+                                            <p className="text-xs text-red-700 dark:text-red-400 font-medium leading-relaxed flex items-center gap-2">
+                                                <ShieldAlert className="w-4 h-4 shrink-0" />
+                                                {coachError}
+                                            </p>
                                         ) : (
                                             <p className="text-xs text-slate-700 dark:text-slate-300 font-medium leading-relaxed whitespace-pre-line">
                                                 {coachAdvice || 'Complete your habits daily to get customized AI insights!'}
@@ -400,7 +485,7 @@ export default function AICoachDrawer({ tasks, userId, onAddTasksBatch, onToggle
                                         <button
                                             onClick={fetchCoachAdvice}
                                             disabled={coachLoading}
-                                            className="w-full py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors cursor-pointer"
+                                            className="w-full py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                         >
                                             Refresh Coaching Advice
                                         </button>
