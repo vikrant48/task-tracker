@@ -22,7 +22,7 @@ export default function ArchivedHabits({ tasks, userId, onRestore, onDelete }: A
             <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                className="h-10 w-full flex items-center gap-2 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 aria-expanded={expanded}
             >
                 <Archive className="w-4 h-4" />
@@ -36,21 +36,21 @@ export default function ArchivedHabits({ tasks, userId, onRestore, onDelete }: A
                         <div key={task.id} className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3 py-2 rounded-xl">
                             <div className="min-w-0">
                                 <span className="block truncate text-sm font-semibold text-slate-700 dark:text-slate-300">{task.name}</span>
-                                <span className="text-[9px] text-slate-500 font-extrabold tracking-wider uppercase">{task.category || 'General'}</span>
+                                <span className="text-[11px] text-slate-500 font-extrabold tracking-wider uppercase">{task.category || 'General'}</span>
                             </div>
                             {task.user_id === userId && (
                                 <div className="flex items-center gap-1 shrink-0">
                                     <button
                                         type="button"
                                         onClick={() => onRestore(task)}
-                                        className="px-2.5 py-1 rounded-lg text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 transition-colors cursor-pointer"
+                                        className="h-10 px-3 rounded-lg text-sm font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 transition-colors cursor-pointer"
                                     >
                                         Restore
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => onDelete(task)}
-                                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                        className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
                                         title="Delete permanently"
                                         aria-label={`Delete ${task.name} permanently`}
                                     >

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import PWARegister from "@/components/PWARegister";
+import InlineScript from "@/components/InlineScript";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 import "./globals.css";
 
@@ -20,16 +21,22 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    // Installed app draws under the status bar; layouts pad with env(safe-area-inset-top)
+    statusBarStyle: "black-translucent",
     title: "FocusFlow",
   },
 };
 
-// No maximumScale: users must be able to pinch-zoom (WCAG 1.4.4)
+// No maximumScale: users must be able to pinch-zoom (WCAG 1.4.4).
+// viewportFit "cover" exposes the safe-area insets used to keep UI clear of notches and the home indicator.
 export const viewport: Viewport = {
-  themeColor: "#8b5cf6",
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#020617" },
+  ],
 };
 
 // Runs before first paint so the saved (or system) theme is applied without a flash.
@@ -49,7 +56,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <InlineScript html={themeScript} />
       </head>
       <body className="min-h-full flex flex-col">
         <PWARegister />

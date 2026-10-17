@@ -417,7 +417,7 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
     };
 
     return (
-        <div className="flex-1 flex flex-col gap-6">
+        <div className="flex-1 flex flex-col gap-4 sm:gap-6">
             <TrackerHeader
                 currentDate={currentDate}
                 weekStart={weekStart}
@@ -440,46 +440,57 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
 
             {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
+            {/* Category chips and (phones only) the cards/grid switch share one row */}
             {tasks.length > 0 && (
-                <CategoryFilter options={categoryOptions} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} />
-            )}
-
-            <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="📱 Daily Cards" gridLabel="📊 Full Grid" />
-
-            {mobileViewMode === 'cards' && (
-                <MobileDayView key={toDateStr(weekStart)} weekDays={weekDays} {...rowProps} onMove={handleMoveTask} />
-            )}
-
-            {/* Grid card: always on tablet/desktop, on mobile only in grid mode */}
-            <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex-col justify-start relative transition-colors duration-200 min-h-[300px] ${mobileViewMode === 'matrix' ? 'flex' : 'hidden sm:flex'}`}>
-                {loading ? (
-                    <LoadingState label="Loading routine tasks..." />
-                ) : loadFailed ? (
-                    /* Don't show the empty state (and its import button) when the data simply failed to load */
-                    <div className="flex-1 flex flex-col items-center justify-center p-12 gap-3 text-center">
-                        <CloudOff className="w-8 h-8 text-slate-400" />
-                        <span className="text-sm text-slate-500 dark:text-slate-400 font-semibold">Could not load your habits.</span>
-                        <button
-                            onClick={() => setReloadKey((k) => k + 1)}
-                            type="button"
-                            className="px-4 py-2 rounded-xl bg-linear-to-tr from-violet-600 to-indigo-600 text-white font-bold text-xs shadow cursor-pointer"
-                        >
-                            Retry
-                        </button>
+                <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                        <CategoryFilter options={categoryOptions} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} />
                     </div>
-                ) : filteredTasks.length === 0 ? (
-                    <EmptyState categoryFilter={selectedCategoryFilter} importing={addingTask} onImportStarter={handleImportStarter} />
-                ) : (
-                    <WeekGrid
-                        weekDays={weekDays}
-                        {...rowProps}
-                        draggedTaskId={draggedTaskId}
-                        onDragStart={handleDragStart}
-                        onDragOver={handleDragOver}
-                        onDragEnd={handleDragEnd}
-                    />
-                )}
-            </div>
+                    <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="Daily cards" gridLabel="Full week grid" />
+                </div>
+            )}
+
+            {loading || loadFailed || filteredTasks.length === 0 ? (
+                // Loading, error and empty states show at every screen size
+                <div className="bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl flex-1 flex flex-col min-h-[300px]">
+                    {loading ? (
+                        <LoadingState label="Loading routine tasks..." />
+                    ) : loadFailed ? (
+                        /* Don't show the empty state (and its import button) when the data simply failed to load */
+                        <div className="flex-1 flex flex-col items-center justify-center p-12 gap-3 text-center">
+                            <CloudOff className="w-8 h-8 text-slate-400" />
+                            <span className="text-sm text-slate-500 dark:text-slate-400 font-semibold">Could not load your habits.</span>
+                            <button
+                                onClick={() => setReloadKey((k) => k + 1)}
+                                type="button"
+                                className="h-11 px-6 rounded-xl bg-linear-to-tr from-violet-600 to-indigo-600 text-white font-bold text-sm shadow cursor-pointer"
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    ) : (
+                        <EmptyState categoryFilter={selectedCategoryFilter} importing={addingTask} onImportStarter={handleImportStarter} />
+                    )}
+                </div>
+            ) : (
+                <>
+                    {mobileViewMode === 'cards' && (
+                        <MobileDayView key={toDateStr(weekStart)} weekDays={weekDays} {...rowProps} onMove={handleMoveTask} />
+                    )}
+
+                    {/* Week grid: always on tablet/desktop, on phones only in grid mode */}
+                    <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden flex-col ${mobileViewMode === 'matrix' ? 'flex' : 'hidden sm:flex'}`}>
+                        <WeekGrid
+                            weekDays={weekDays}
+                            {...rowProps}
+                            draggedTaskId={draggedTaskId}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDragEnd={handleDragEnd}
+                        />
+                    </div>
+                </>
+            )}
 
             <AddHabitForm adding={addingTask} onAdd={handleAddTask} />
 

@@ -71,7 +71,7 @@ describe('History view', () => {
     it('shows the month and saves a toggle', async () => {
         render(<HistoryView userId={USER_ID} />);
         expect((await screen.findAllByText('Read 10 pages')).length).toBeGreaterThan(0);
-        expect(screen.getByText('Oct 2026')).toBeTruthy();
+        expect(screen.getByText('October 2026')).toBeTruthy();
 
         screen.getAllByRole('button', { name: 'Read 10 pages, 2026-10-05' })
             .forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('true'));

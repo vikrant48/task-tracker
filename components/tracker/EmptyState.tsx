@@ -35,7 +35,7 @@ export default function EmptyState({ categoryFilter, importing, onImportStarter 
                     >
                         Import Starter Habit Plan
                     </button>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
                         Adds: Water, Exercise, Reading, Focus block
                     </span>
                 </div>

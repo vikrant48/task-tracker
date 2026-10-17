@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isToday } from 'date-fns';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Download, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Download } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Entry, MobileViewMode, Task } from '@/lib/types';
 import { toDateStr } from '@/lib/dates';
@@ -16,7 +16,10 @@ import LoadingState from '@/components/LoadingState';
 import ViewModeSwitch from '@/components/ViewModeSwitch';
 import CheckInButton from '@/components/tracker/CheckInButton';
 
-const NAV_ARROW = 'h-8 w-7 sm:w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all font-medium select-none cursor-pointer';
+const NAV_ARROW = 'w-11 h-11 shrink-0 flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white active:bg-slate-200/60 dark:active:bg-slate-800 transition-colors cursor-pointer';
+
+// Calendar header for the phone cards (weeks start Monday, like the tracker)
+const WEEKDAY_INITIALS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 // Month view of every habit, with CSV export
 export default function HistoryView({ userId }: { userId: string }) {
@@ -81,6 +84,8 @@ export default function HistoryView({ userId }: { userId: string }) {
         [currentMonth]
     );
     const todayStr = toDateStr(new Date());
+    // Empty cells before the 1st so dates line up under their weekday (Monday = 0)
+    const monthOffset = (startOfMonth(currentMonth).getDay() + 6) % 7;
 
     // Same check-in behaviour as the tracker, including offline queueing
     const { enqueue } = useOfflineSync(supabase, userId, setError);
@@ -105,98 +110,88 @@ export default function HistoryView({ userId }: { userId: string }) {
     };
 
     return (
-        <div className="flex-1 flex flex-col gap-6">
-            {/* Month header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900/40 p-4 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-colors duration-200">
+        <div className="flex-1 flex flex-col gap-4 sm:gap-6">
+            {/* Title + export */}
+            <div className="flex items-center justify-between gap-3">
                 <div>
-                    <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-                        All History Tracker
-                    </h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-                        Full history of your routine habits
-                    </p>
+                    <h2 className="text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">History</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Every habit, day by day</p>
                 </div>
-
-                <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
-                    {/* Month Navigator */}
-                    <div className="flex-1 sm:flex-initial flex items-center justify-between bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1 h-10 transition-colors">
-                        <button type="button" onClick={() => setCurrentMonth((m) => subMonths(m, 1))} className={NAV_ARROW} aria-label="Previous month">
-                            <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <span className="px-1.5 sm:px-4 text-xs font-bold text-slate-700 dark:text-white text-center select-none truncate">
-                            {format(currentMonth, 'MMM yyyy')}
-                        </span>
-                        <button type="button" onClick={() => setCurrentMonth((m) => addMonths(m, 1))} className={NAV_ARROW} aria-label="Next month">
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
-                    </div>
-
-                    {/* Jump Picker */}
-                    <div className="flex-1 sm:flex-initial relative flex items-center justify-center bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 sm:px-3 h-10 text-slate-500 dark:text-slate-400 focus-within:text-slate-800 dark:focus-within:text-white focus-within:border-slate-400 dark:focus-within:border-slate-700 transition-all">
-                        <CalendarIcon className="w-4 h-4 mr-1.5 shrink-0" />
-                        <input
-                            type="month"
-                            aria-label="Jump to month"
-                            value={format(currentMonth, 'yyyy-MM')}
-                            onChange={(e) => {
-                                if (e.target.value) {
-                                    const [y, m] = e.target.value.split('-');
-                                    setCurrentMonth(new Date(parseInt(y), parseInt(m) - 1, 1));
-                                }
-                            }}
-                            className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none w-full sm:w-auto min-w-[110px] cursor-pointer select-none"
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* Category filters & CSV export */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <CategoryFilter options={categoryOptions} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} />
-
                 <button
                     type="button"
                     onClick={exportToCSV}
                     disabled={filteredTasks.length === 0}
-                    className="flex items-center justify-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white font-bold text-xs py-2 px-4 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed select-none transition-all cursor-pointer whitespace-nowrap"
+                    aria-label="Export CSV"
+                    title="Export CSV"
+                    className="h-10 min-w-10 px-2.5 sm:px-4 flex items-center justify-center gap-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                    <Download className="w-3.5 h-3.5 mr-1.5" />
-                    Export CSV
+                    <Download className="w-4 h-4" />
+                    <span className="hidden sm:inline">Export CSV</span>
                 </button>
             </div>
 
-            <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="📱 Habit Cards" gridLabel="📊 31-Day Grid" />
+            {/* Month navigation: arrows around a tappable month (opens the native month picker) */}
+            <div className="flex items-center bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl md:self-start">
+                <button type="button" onClick={() => setCurrentMonth((m) => subMonths(m, 1))} className={NAV_ARROW} aria-label="Previous month">
+                    <ChevronLeft className="w-5 h-5" />
+                </button>
+                <label className="relative flex-1 h-11 flex items-center justify-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200 cursor-pointer md:px-6">
+                    <CalendarIcon className="w-4 h-4 text-violet-500" />
+                    {format(currentMonth, 'MMMM yyyy')}
+                    <input
+                        type="month"
+                        aria-label="Jump to month"
+                        value={format(currentMonth, 'yyyy-MM')}
+                        onChange={(e) => {
+                            if (e.target.value) {
+                                const [y, m] = e.target.value.split('-');
+                                setCurrentMonth(new Date(parseInt(y), parseInt(m) - 1, 1));
+                            }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                </label>
+                <button type="button" onClick={() => setCurrentMonth((m) => addMonths(m, 1))} className={NAV_ARROW} aria-label="Next month">
+                    <ChevronRight className="w-5 h-5" />
+                </button>
+            </div>
 
-            {/* Mobile habit summary cards */}
+            {/* Category chips and (phones only) the cards/grid switch share one row */}
+            <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                    <CategoryFilter options={categoryOptions} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} />
+                </div>
+                <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="Habit cards" gridLabel="Full month grid" />
+            </div>
+
+            {/* Phone habit cards: a month calendar per habit */}
             {mobileViewMode === 'cards' && !loading && filteredTasks.length > 0 && (
-                <div className="sm:hidden flex flex-col gap-4">
+                <div className="sm:hidden flex flex-col gap-3">
                     {filteredTasks.map((task) => {
                         const completedDays = daysInMonth.filter((d) => isCompleted(task.id, toDateStr(d))).length;
                         const pct = Math.round((completedDays / daysInMonth.length) * 100);
 
                         return (
-                            <div key={task.id} className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-900 p-4 rounded-2xl flex flex-col gap-3 backdrop-blur shadow-sm">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <h4 className="font-bold text-base text-slate-800 dark:text-white">{task.name}</h4>
-                                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            <div key={task.id} className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-900 p-4 rounded-2xl flex flex-col gap-3 shadow-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <h4 className="font-bold text-base text-slate-800 dark:text-white truncate">{task.name}</h4>
+                                        <span className="text-xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                                             {task.category || 'General'}
                                         </span>
                                     </div>
-                                    <div className="text-right">
-                                        <span className="text-sm font-extrabold text-violet-600 dark:text-violet-400">
-                                            {completedDays}/{daysInMonth.length} days
-                                        </span>
-                                        <span className="block text-[10px] font-bold text-slate-400">{pct}% complete</span>
+                                    <div className="text-right shrink-0">
+                                        <span className="block text-base font-extrabold text-violet-600 dark:text-violet-400">{pct}%</span>
+                                        <span className="block text-xs font-semibold text-slate-400">{completedDays}/{daysInMonth.length} days</span>
                                     </div>
                                 </div>
 
-                                <div className="w-full bg-slate-100 dark:bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-200/50 dark:border-slate-800">
-                                    <div className="h-full bg-linear-to-r from-violet-600 to-indigo-600 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
-                                </div>
-
-                                {/* Mini day grid */}
-                                <div className="grid grid-cols-7 gap-1 pt-1">
+                                {/* Calendar: weekday header, dates in their weekday column (weeks start Monday) */}
+                                <div className="grid grid-cols-7 gap-1 text-center">
+                                    {WEEKDAY_INITIALS.map((d, i) => (
+                                        <span key={i} aria-hidden="true" className="text-[11px] font-bold text-slate-400 dark:text-slate-500 pb-0.5">{d}</span>
+                                    ))}
+                                    {Array.from({ length: monthOffset }, (_, i) => <span key={`pad-${i}`} />)}
                                     {daysInMonth.map((day) => {
                                         const dateStr = toDateStr(day);
                                         const isFuture = dateStr > todayStr;
@@ -210,15 +205,14 @@ export default function HistoryView({ userId }: { userId: string }) {
                                                 onClick={() => !isFuture && handleToggle(task.id, dateStr, completed)}
                                                 aria-label={`${task.name}, ${dateStr}`}
                                                 aria-pressed={completed}
-                                                className={`h-7 rounded-lg text-[10px] font-bold flex items-center justify-center transition-all ${isFuture
-                                                    ? 'bg-slate-100/30 dark:bg-slate-950/20 text-slate-300 dark:text-slate-800 opacity-30 cursor-not-allowed border border-slate-200/30 dark:border-slate-900/30'
+                                                className={`h-9 rounded-lg text-xs font-bold flex items-center justify-center transition-colors ${isFuture
+                                                    ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
                                                     : completed
-                                                        ? 'bg-violet-600 text-white shadow-sm cursor-pointer'
-                                                        : 'bg-slate-100 dark:bg-slate-950/60 text-slate-400 dark:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-900 cursor-pointer'
+                                                        ? 'bg-violet-600 text-white cursor-pointer'
+                                                        : 'bg-slate-100 dark:bg-slate-950/60 text-slate-500 dark:text-slate-500 active:bg-slate-200 dark:active:bg-slate-800 cursor-pointer'
                                                     } ${isToday(day) ? 'ring-2 ring-emerald-500' : ''}`}
-                                                title={isFuture ? 'Future dates cannot be filled' : `${format(day, 'MMM d')}: ${completed ? 'Completed' : 'Not completed'}`}
                                             >
-                                                {isFuture ? <Lock className="w-2.5 h-2.5 text-slate-400/50 dark:text-slate-700" /> : format(day, 'd')}
+                                                {format(day, 'd')}
                                             </button>
                                         );
                                     })}
@@ -232,7 +226,7 @@ export default function HistoryView({ userId }: { userId: string }) {
             {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
             {/* Month grid: always on tablet/desktop, on mobile only in grid mode */}
-            <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex-col justify-start relative transition-colors duration-200 min-h-[300px] ${mobileViewMode === 'matrix' ? 'flex' : 'hidden sm:flex'}`}>
+            <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden backdrop-blur flex-1 flex-col justify-start relative transition-colors duration-200 min-h-[300px] ${mobileViewMode === 'matrix' || loading || filteredTasks.length === 0 ? 'flex' : 'hidden sm:flex'}`}>
                 {loading ? (
                     <LoadingState label="Syncing history..." />
                 ) : filteredTasks.length === 0 ? (
@@ -249,7 +243,7 @@ export default function HistoryView({ userId }: { userId: string }) {
                         <table className="w-full border-collapse text-left min-w-[1000px]">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-900">
-                                    <th className="sticky left-0 bg-white dark:bg-slate-950 z-20 px-6 py-4 font-bold text-xs sm:text-sm text-slate-500 dark:text-slate-400 w-[220px] border-r border-slate-200 dark:border-slate-900 backdrop-blur-md shadow-sm">
+                                    <th className="sticky left-0 bg-white dark:bg-slate-950 z-20 px-3 sm:px-6 py-3 sm:py-4 font-bold text-xs sm:text-sm text-slate-500 dark:text-slate-400 w-[130px] sm:w-[130px] sm:w-[220px] border-r border-slate-200 dark:border-slate-900 backdrop-blur-md shadow-sm">
                                         Routine Task
                                     </th>
                                     {daysInMonth.map((day) => {
@@ -260,7 +254,7 @@ export default function HistoryView({ userId }: { userId: string }) {
                                                 className={`px-2.5 py-4 text-center font-extrabold text-xs border-r border-slate-200/60 dark:border-slate-900/50 last:border-r-0 ${isDayToday ? 'text-violet-500 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400'}`}
                                             >
                                                 <div className="flex flex-col items-center min-w-[32px]">
-                                                    <span className="uppercase text-[9px] tracking-wider mb-0.5">{format(day, 'eeeee')}</span>
+                                                    <span className="uppercase text-[11px] tracking-wider mb-0.5">{format(day, 'eeeee')}</span>
                                                     <span className={`w-6 h-6 flex items-center justify-center rounded-full font-bold text-xs ${isDayToday ? 'bg-violet-600/10 dark:bg-violet-600/20 text-violet-600 dark:text-violet-400 ring-1 ring-violet-500/20' : ''}`}>
                                                         {format(day, 'd')}
                                                     </span>
@@ -273,10 +267,10 @@ export default function HistoryView({ userId }: { userId: string }) {
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-900/50">
                                 {filteredTasks.map((task) => (
                                     <tr key={task.id} className="hover:bg-slate-100/40 dark:hover:bg-slate-900/20 transition-all select-none">
-                                        <td className="sticky left-0 bg-white dark:bg-slate-950 z-10 px-6 py-4 font-medium text-sm text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-900 w-[220px] shadow-sm backdrop-blur-md">
+                                        <td className="sticky left-0 bg-white dark:bg-slate-950 z-10 px-3 sm:px-6 py-3 sm:py-4 font-medium text-sm text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-900 w-[130px] max-w-[130px] sm:w-[220px] sm:max-w-none shadow-sm backdrop-blur-md">
                                             <div className="flex flex-col truncate">
                                                 <span className="truncate font-semibold text-slate-800 dark:text-slate-100">{task.name}</span>
-                                                <span className="text-[9px] text-slate-500 font-extrabold tracking-wider uppercase mt-0.5 pointer-events-none select-none">
+                                                <span className="text-[11px] text-slate-500 font-extrabold tracking-wider uppercase mt-0.5 pointer-events-none select-none">
                                                     {task.category || 'General'}
                                                 </span>
                                             </div>

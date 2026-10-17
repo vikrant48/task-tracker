@@ -51,8 +51,19 @@ textarea {
   touch-action: manipulation;
 }
 
-/* Custom Scrollbar & Touch Momentum */
-.overflow-y-auto,
-.overflow-x-auto {
-  -webkit-overflow-scrolling: touch;
+/* iOS Safari zooms the page when focusing an input under 16px; keep form text at 16px on touch screens */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Horizontally swipeable rows (chips, tabs) without a visible scrollbar */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

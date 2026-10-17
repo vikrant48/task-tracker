@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { format, addDays, parseISO } from 'date-fns';
+import { format, addDays, parseISO, isSameWeek } from 'date-fns';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2, Cloud, CloudOff, Bell, BellRing, Trophy } from 'lucide-react';
 import type { SyncState } from '@/lib/types';
 import type { ReminderPermission } from '@/hooks/useReminders';
@@ -20,13 +20,15 @@ interface TrackerHeaderProps {
     onPickDate: (date: Date) => void;
 }
 
-const SYNC_BADGES: Record<SyncState, { label: string; className: string; icon: ReactNode }> = {
-    synced: { label: 'Synced', className: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10', icon: <Cloud className="w-3 h-3" /> },
-    syncing: { label: 'Syncing', className: 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 animate-pulse', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    offline: { label: 'Offline', className: 'text-amber-600 dark:text-amber-500 bg-amber-500/10', icon: <CloudOff className="w-3 h-3 animate-bounce" /> },
+const SYNC: Record<SyncState, { label: string; className: string; icon: ReactNode }> = {
+    synced: { label: 'Synced', className: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10', icon: <Cloud className="w-4 h-4" /> },
+    syncing: { label: 'Syncing', className: 'text-indigo-600 dark:text-indigo-400 bg-indigo-500/10', icon: <Loader2 className="w-4 h-4 animate-spin" /> },
+    offline: { label: 'Offline', className: 'text-amber-600 dark:text-amber-500 bg-amber-500/10', icon: <CloudOff className="w-4 h-4" /> },
 };
 
-const NAV_ARROW = 'h-8 w-7 sm:w-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer';
+// Icon-only on phones (labels from sm up), always at least 40px tall for touch
+const CHIP = 'h-10 min-w-10 px-2.5 sm:px-3 flex items-center justify-center gap-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-colors cursor-pointer border';
+const ARROW = 'w-11 h-11 shrink-0 flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white active:bg-slate-200/60 dark:active:bg-slate-800 transition-colors cursor-pointer';
 
 export default function TrackerHeader({
     currentDate,
@@ -40,85 +42,83 @@ export default function TrackerHeader({
     onNextWeek,
     onPickDate,
 }: TrackerHeaderProps) {
-    const sync = SYNC_BADGES[syncState];
+    const sync = SYNC[syncState];
     const remindersOn = reminderPermission === 'granted';
+    const isCurrentWeek = isSameWeek(weekStart, new Date(), { weekStartsOn: 1 });
 
     return (
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-slate-900/40 p-3.5 sm:p-4 border border-slate-200 dark:border-slate-900 rounded-2xl backdrop-blur transition-all duration-200">
-            <div className="flex items-center justify-between gap-2 sm:gap-4 w-full md:w-auto">
-                <h2 className="text-xl sm:text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight shrink-0">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-2">
+                <h2 className="text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">
                     {format(currentDate, 'MMM yyyy')}
                 </h2>
 
-                {/* Sync & Reminders Badges */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${sync.className}`}>
+                <div className="flex items-center gap-1.5">
+                    <span role="status" aria-label={sync.label} title={sync.label} className={`${CHIP} cursor-default border-transparent ${sync.className}`}>
                         {sync.icon}
-                        <span>{sync.label}</span>
-                    </div>
-
-                    {/* Daily Reminder Notifications Bell */}
+                        <span className="hidden sm:inline">{sync.label}</span>
+                    </span>
                     <button
                         type="button"
                         onClick={onReminderClick}
-                        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border ${remindersOn
-                            ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 hover:bg-violet-500/20'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:text-violet-600 dark:hover:text-violet-400'
+                        aria-label={remindersOn ? 'Send a progress reminder' : 'Enable reminders'}
+                        title={remindersOn ? 'Send a progress reminder' : 'Enable reminders'}
+                        className={`${CHIP} ${remindersOn
+                            ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
                             }`}
-                        title={remindersOn ? 'Click to send daily reminder / test notification' : 'Enable Web Push Daily Reminders'}
                     >
-                        {remindersOn ? <BellRing className="w-3 h-3 text-violet-500 animate-pulse" /> : <Bell className="w-3 h-3" />}
-                        <span>Reminders</span>
+                        {remindersOn ? <BellRing className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                        <span className="hidden sm:inline">Reminders</span>
                     </button>
-
-                    {/* Streak milestones showcase */}
                     <button
                         type="button"
                         onClick={onShowBadges}
-                        className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
-                        title="View streak milestone badges"
+                        aria-label="Streak badges"
+                        title="Streak badges"
+                        className={`${CHIP} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20`}
                     >
-                        <Trophy className="w-3 h-3" />
-                        <span>Badges</span>
+                        <Trophy className="w-4 h-4" />
+                        <span className="hidden sm:inline">Badges</span>
                     </button>
                 </div>
             </div>
 
-            <div className="flex items-center justify-between sm:justify-start gap-2 w-full md:w-auto">
-                {/* Nav buttons */}
-                <div className="flex items-center h-9 sm:h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-0.5 sm:p-1 transition-colors">
-                    <button type="button" onClick={onPrevWeek} className={NAV_ARROW} aria-label="Previous week">
-                        <ChevronLeft className="w-4 h-4" />
+            {/* Week navigation: arrows around a tappable date range (opens the native date picker) */}
+            <div className="flex items-center gap-2">
+                <div className="flex-1 md:flex-initial flex items-center bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl">
+                    <button type="button" onClick={onPrevWeek} className={ARROW} aria-label="Previous week">
+                        <ChevronLeft className="w-5 h-5" />
                     </button>
+                    <label className="relative flex-1 h-11 flex items-center justify-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200 cursor-pointer md:px-3">
+                        <CalendarIcon className="w-4 h-4 text-violet-500 shrink-0" />
+                        <span className="whitespace-nowrap">
+                            {format(weekStart, 'MMM d')} – {format(addDays(weekStart, 6), 'MMM d')}
+                        </span>
+                        <input
+                            type="date"
+                            aria-label="Jump to date"
+                            value={toDateStr(currentDate)}
+                            onChange={(e) => {
+                                // parseISO reads 'yyyy-MM-dd' as local midnight (new Date() would use UTC)
+                                if (e.target.value) onPickDate(parseISO(e.target.value));
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                    </label>
+                    <button type="button" onClick={onNextWeek} className={ARROW} aria-label="Next week">
+                        <ChevronRight className="w-5 h-5" />
+                    </button>
+                </div>
+                {!isCurrentWeek && (
                     <button
                         type="button"
                         onClick={onToday}
-                        className="h-8 px-2 sm:px-3 flex items-center justify-center rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-900 transition-all select-none cursor-pointer"
+                        className="h-11 px-4 shrink-0 rounded-2xl bg-violet-500/10 text-violet-600 dark:text-violet-400 text-sm font-bold active:scale-95 transition-transform cursor-pointer"
                     >
                         Today
                     </button>
-                    <button type="button" onClick={onNextWeek} className={NAV_ARROW} aria-label="Next week">
-                        <ChevronRight className="w-4 h-4" />
-                    </button>
-                </div>
-
-                {/* Jump Picker showing week start to end */}
-                <div className="relative flex items-center h-9 sm:h-10 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 sm:px-3 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer flex-1 sm:flex-initial justify-center">
-                    <CalendarIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 shrink-0" />
-                    <span className="text-[11px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 select-none whitespace-nowrap">
-                        {format(weekStart, 'MMM d')} - {format(addDays(weekStart, 6), 'MMM d')}
-                    </span>
-                    <input
-                        type="date"
-                        aria-label="Jump to date"
-                        value={toDateStr(currentDate)}
-                        onChange={(e) => {
-                            // parseISO reads 'yyyy-MM-dd' as local midnight (new Date() would use UTC)
-                            if (e.target.value) onPickDate(parseISO(e.target.value));
-                        }}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                </div>
+                )}
             </div>
         </div>
     );

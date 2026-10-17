@@ -38,10 +38,10 @@ export default function WeekGrid({
 }: WeekGridProps) {
     return (
         <div className="overflow-x-auto relative w-full flex-1 touch-pan-y">
-            <table className="w-full border-collapse text-left min-w-[750px]">
+            <table className="w-full border-collapse text-left min-w-[520px] sm:min-w-[750px]">
                 <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-900 transition-colors">
-                        <th className="sticky left-0 bg-slate-50 dark:bg-slate-950/80 z-20 px-6 py-4 font-bold text-xs sm:text-sm text-slate-500 dark:text-slate-400 w-[260px] border-r border-slate-200 dark:border-slate-900 backdrop-blur-md shadow-sm">
+                        <th className="sticky left-0 bg-slate-50 dark:bg-slate-950/80 z-20 px-3 sm:px-6 py-3 sm:py-4 font-bold text-xs sm:text-sm text-slate-500 dark:text-slate-400 w-[150px] sm:w-[260px] border-r border-slate-200 dark:border-slate-900 backdrop-blur-md shadow-sm">
                             Routine Task & Collaborators
                         </th>
                         {weekDays.map((day) => {
@@ -49,10 +49,10 @@ export default function WeekGrid({
                             return (
                                 <th
                                     key={toDateStr(day)}
-                                    className={`px-4 py-4 text-center font-extrabold text-xs border-r border-slate-200/60 dark:border-slate-900/50 last:border-r-0 ${isDayToday ? 'text-violet-500 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400'}`}
+                                    className={`px-1 sm:px-4 py-3 sm:py-4 text-center font-extrabold text-xs border-r border-slate-200/60 dark:border-slate-900/50 last:border-r-0 ${isDayToday ? 'text-violet-500 dark:text-violet-400' : 'text-slate-500 dark:text-slate-400'}`}
                                 >
                                     <div className="flex flex-col items-center">
-                                        <span className="uppercase text-[9px] tracking-wider mb-0.5">{format(day, 'eee')}</span>
+                                        <span className="uppercase text-[11px] tracking-wider mb-0.5">{format(day, 'eee')}</span>
                                         <span className={`w-7 h-7 flex items-center justify-center rounded-full font-bold text-xs sm:text-sm tracking-tight ${isDayToday ? 'bg-violet-600/10 dark:bg-violet-600/20 text-violet-600 dark:text-violet-400 ring-2 ring-violet-500/20' : ''}`}>
                                             {format(day, 'd')}
                                         </span>
@@ -83,10 +83,10 @@ export default function WeekGrid({
                                 style={{ opacity: draggedTaskId === task.id ? 0.4 : 1 }}
                             >
                                 {/* Sticky habit cell */}
-                                <td className="sticky left-0 bg-white dark:bg-slate-950 z-10 px-4 py-3 border-r border-slate-200 dark:border-slate-900 w-[260px] shadow-sm transition-colors duration-200">
+                                <td className="sticky left-0 bg-white dark:bg-slate-950 z-10 px-2 sm:px-4 py-3 border-r border-slate-200 dark:border-slate-900 w-[150px] max-w-[150px] sm:w-[260px] sm:max-w-none shadow-sm transition-colors duration-200">
                                     <div className="flex items-center gap-1.5">
                                         <div
-                                            className={`p-1 ${owned ? 'text-slate-300 dark:text-slate-600 hover:text-slate-500 cursor-grab active:cursor-grabbing' : 'invisible'}`}
+                                            className={`hidden sm:block p-1 ${owned ? 'text-slate-300 dark:text-slate-600 hover:text-slate-500 cursor-grab active:cursor-grabbing' : 'invisible'}`}
                                             aria-hidden="true"
                                         >
                                             <GripVertical className="w-3.5 h-3.5" />
@@ -128,17 +128,19 @@ export default function WeekGrid({
                                                                 <Users className="w-3.5 h-3.5 text-indigo-500" />
                                                             </span>
                                                         )}
-                                                        <StreakBadges streak={getStreak(task.id)} />
+                                                        <span className="hidden sm:contents">
+                                                            <StreakBadges streak={getStreak(task.id)} />
+                                                        </span>
                                                     </div>
 
                                                     <div className="flex items-center justify-between mt-1">
-                                                        <span className="text-[9px] text-slate-500 font-extrabold tracking-wider uppercase">
+                                                        <span className="text-[11px] text-slate-500 font-bold tracking-wide uppercase">
                                                             {task.category || 'General'}
                                                         </span>
 
-                                                        {/* Edit, share and remove: owner only */}
+                                                        {/* Edit, share and remove: owner only. On phones these live in the card view's action sheet. */}
                                                         {task.user_id === userId && (
-                                                            <div className="flex items-center gap-1">
+                                                            <div className="hidden sm:flex items-center gap-1">
                                                                 <button onClick={() => editing.start(task)} type="button" className={`${ACTION_BUTTON} hover:text-violet-500`} title="Edit habit name">
                                                                     <Pencil className="w-3.5 h-3.5" />
                                                                 </button>
@@ -162,7 +164,7 @@ export default function WeekGrid({
                                     const dateStr = toDateStr(day);
                                     const completed = isCompleted(task.id, dateStr);
                                     return (
-                                        <td key={dateStr} className="px-2 py-2 text-center border-r border-slate-100 dark:border-slate-900/30 last:border-r-0">
+                                        <td key={dateStr} className="px-0.5 sm:px-2 py-2 text-center border-r border-slate-100 dark:border-slate-900/30 last:border-r-0">
                                             <div className="flex justify-center items-center">
                                                 <CheckInButton
                                                     variant="grid"

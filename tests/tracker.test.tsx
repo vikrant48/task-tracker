@@ -76,7 +76,7 @@ describe('Weekly Tracker', () => {
     it('loads the habits for the current week and shows streaks', async () => {
         setup();
         expect((await screen.findAllByText('Read 10 pages')).length).toBeGreaterThan(0);
-        expect(screen.getByText('Oct 12 - Oct 18')).toBeTruthy();
+        expect(screen.getByText('Oct 12 – Oct 18')).toBeTruthy();
         // 3 consecutive days ending today
         expect(screen.getAllByText('3d').length).toBeGreaterThan(0);
         cell('Read 10 pages', TODAY).forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('true'));
