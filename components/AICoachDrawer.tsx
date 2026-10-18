@@ -18,6 +18,27 @@ interface SpeechRecognitionLike {
 }
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+type DictationTarget = 'log' | 'goal';
+
+// Microphone toggle shown inside a text input; pulses red while listening
+function MicButton({ listening, onClick }: { listening: boolean; onClick: () => void }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-label={listening ? 'Stop voice input' : 'Speak instead of typing'}
+            aria-pressed={listening}
+            title={listening ? 'Listening… tap to stop' : 'Voice input'}
+            className={`w-9 h-9 shrink-0 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${listening
+                ? 'bg-red-500 text-white animate-pulse'
+                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'
+                }`}
+        >
+            {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+        </button>
+    );
+}
+
 function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
     const w = window as Window & {
         SpeechRecognition?: SpeechRecognitionConstructor;
@@ -63,7 +84,6 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
 
     // Natural Log State
     const [logInput, setLogInput] = useState('');
-    const [isListening, setIsListening] = useState(false);
     const [logLoading, setLogLoading] = useState(false);
     const [logFeedback, setLogFeedback] = useState<string | null>(null);
 
@@ -80,23 +100,31 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
     const [coachError, setCoachError] = useState<string | null>(null);
     const [coachLoading, setCoachLoading] = useState(false);
 
-    // Voice dictation (Web Speech API). Kept in a ref so the mic button can actually stop it.
+    // Voice dictation (Web Speech API) into whichever input's mic was tapped.
+    // Kept in a ref so the mic button can actually stop it.
     const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+    const [listeningFor, setListeningFor] = useState<DictationTarget | null>(null);
 
     // Stop listening if the component unmounts mid-dictation
     useEffect(() => () => recognitionRef.current?.stop(), []);
 
-    const handleVoiceToggle = () => {
-        if (isListening) {
-            recognitionRef.current?.stop();
+    const stopDictation = () => recognitionRef.current?.stop();
+
+    const toggleDictation = (target: DictationTarget) => {
+        if (listeningFor === target) {
+            stopDictation();
             return;
         }
 
         const SpeechRecognition = getSpeechRecognition();
         if (!SpeechRecognition) {
-            alert('Voice dictation is not supported on this browser. Please type your message.');
+            alert('Voice input is not supported on this browser. Please type instead.');
             return;
         }
+
+        // Only one microphone session at a time
+        stopDictation();
+        const appendTo = target === 'log' ? setLogInput : setGoalInput;
 
         try {
             const recognition = new SpeechRecognition();
@@ -104,27 +132,35 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
             recognition.interimResults = false;
             recognition.lang = 'en-US';
 
-            recognition.onstart = () => setIsListening(true);
+            recognition.onstart = () => setListeningFor(target);
             recognition.onend = () => {
-                setIsListening(false);
+                // Ignore the end of a session that a newer one has already replaced
+                if (recognitionRef.current !== recognition) return;
                 recognitionRef.current = null;
+                setListeningFor(null);
             };
-            recognition.onerror = () => setIsListening(false);
+            recognition.onerror = () => recognition.stop();
             recognition.onresult = (event) => {
-                const transcript = event.results[0]?.[0]?.transcript;
-                if (transcript) setLogInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+                const transcript = event.results[0]?.[0]?.transcript?.trim();
+                if (transcript) appendTo((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
             };
 
             recognitionRef.current = recognition;
             recognition.start();
         } catch (e) {
             console.error('Speech recognition error:', e);
-            setIsListening(false);
+            recognitionRef.current = null;
+            setListeningFor(null);
         }
     };
 
+    const switchTab = (tab: typeof activeTab) => {
+        stopDictation();
+        setActiveTab(tab);
+    };
+
     const closeDrawer = () => {
-        recognitionRef.current?.stop();
+        stopDictation();
         setIsOpen(false);
     };
 
@@ -303,7 +339,7 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
                         {/* Navigation Tabs */}
                         <div className="flex border-b border-slate-200 dark:border-slate-900 bg-slate-100/50 dark:bg-slate-950/50 p-1 gap-1">
                             <button
-                                onClick={() => setActiveTab('log')}
+                                onClick={() => switchTab('log')}
                                 className={`flex-1 h-11 text-sm font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'log'
                                     ? 'bg-white dark:bg-slate-900 text-violet-600 dark:text-violet-400 shadow-sm'
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -314,7 +350,7 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
                             </button>
 
                             <button
-                                onClick={() => setActiveTab('breakdown')}
+                                onClick={() => switchTab('breakdown')}
                                 className={`flex-1 h-11 text-sm font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'breakdown'
                                     ? 'bg-white dark:bg-slate-900 text-violet-600 dark:text-violet-400 shadow-sm'
                                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -326,7 +362,7 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
 
                             <button
                                 onClick={() => {
-                                    setActiveTab('coach');
+                                    switchTab('coach');
                                     if (!coachAdvice) fetchCoachAdvice();
                                 }}
                                 className={`flex-1 h-11 text-sm font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'coach'
@@ -349,33 +385,26 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
                                         🗣️ <strong>Speak or Type</strong>: Describe what habits you finished today (e.g. <em>&ldquo;Completed reading and drank 2L water&rdquo;</em>) and AI will check them off automatically!
                                     </div>
 
-                                    <form onSubmit={handleNaturalLog} className="space-y-3">
+                                    <form onSubmit={handleNaturalLog}>
                                         <div className="relative flex items-center">
                                             <input
                                                 type="text"
+                                                aria-label="What did you complete today?"
+                                                enterKeyHint="send"
                                                 value={logInput}
                                                 onChange={(e) => setLogInput(e.target.value)}
-                                                placeholder="e.g. Completed 10 pushups and drank water..."
-                                                className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-3 pr-20 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
+                                                placeholder="e.g. Read and drank water…"
+                                                className="w-full min-w-0 h-12 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-3.5 pr-24 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
                                             />
-                                            <div className="absolute right-2 flex items-center gap-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleVoiceToggle}
-                                                    className={`p-2 rounded-lg transition-colors cursor-pointer ${isListening
-                                                        ? 'bg-red-500 text-white animate-pulse'
-                                                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300'
-                                                        }`}
-                                                    title={isListening ? 'Listening...' : 'Voice Dictation'}
-                                                >
-                                                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                                                </button>
+                                            <div className="absolute right-1.5 flex items-center gap-1">
+                                                <MicButton listening={listeningFor === 'log'} onClick={() => toggleDictation('log')} />
                                                 <button
                                                     type="submit"
+                                                    aria-label="Log habits"
                                                     disabled={logLoading || !logInput.trim()}
-                                                    className="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg disabled:opacity-40 transition-all cursor-pointer"
+                                                    className="w-9 h-9 flex items-center justify-center bg-violet-600 hover:bg-violet-500 text-white rounded-lg disabled:opacity-40 transition-all cursor-pointer"
                                                 >
-                                                    {logLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                                    {logLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                                                 </button>
                                             </div>
                                         </div>
@@ -397,20 +426,28 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
                                         🎯 Enter any big goal (e.g. <em>&ldquo;Prepare for Marathon&rdquo;</em> or <em>&ldquo;Learn Next.js&rdquo;</em>) and AI will convert it into 3–4 daily micro-habits!
                                     </div>
 
-                                    <form onSubmit={handleGoalBreakdown} className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={goalInput}
-                                            onChange={(e) => setGoalInput(e.target.value)}
-                                            placeholder="Enter high-level goal..."
-                                            className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
-                                        />
+                                    {/* min-w-0 lets the input shrink, so the Generate button always stays on screen */}
+                                    <form onSubmit={handleGoalBreakdown} className="flex items-center gap-2">
+                                        <div className="relative flex-1 min-w-0 flex items-center">
+                                            <input
+                                                type="text"
+                                                aria-label="Your goal"
+                                                enterKeyHint="go"
+                                                value={goalInput}
+                                                onChange={(e) => setGoalInput(e.target.value)}
+                                                placeholder="Your goal…"
+                                                className="w-full min-w-0 h-12 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-3.5 pr-12 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                                            />
+                                            <div className="absolute right-1.5">
+                                                <MicButton listening={listeningFor === 'goal'} onClick={() => toggleDictation('goal')} />
+                                            </div>
+                                        </div>
                                         <button
                                             type="submit"
                                             disabled={breakdownLoading || !goalInput.trim()}
-                                            className="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold disabled:opacity-40 transition-all flex items-center gap-1 cursor-pointer"
+                                            className="h-12 shrink-0 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold disabled:opacity-40 transition-all flex items-center gap-1.5 cursor-pointer"
                                         >
-                                            {breakdownLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                            {breakdownLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                                             Generate
                                         </button>
                                     </form>
