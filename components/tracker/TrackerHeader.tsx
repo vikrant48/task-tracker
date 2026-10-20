@@ -4,14 +4,13 @@ import type { ReactNode } from 'react';
 import { format, addDays, parseISO, isSameWeek } from 'date-fns';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Loader2, Cloud, CloudOff, Bell, BellRing, Trophy } from 'lucide-react';
 import type { SyncState } from '@/lib/types';
-import type { ReminderPermission } from '@/hooks/useReminders';
 import { toDateStr } from '@/lib/dates';
 
 interface TrackerHeaderProps {
     currentDate: Date;
     weekStart: Date;
     syncState: SyncState;
-    reminderPermission: ReminderPermission;
+    remindersOn: boolean;
     onReminderClick: () => void;
     onShowBadges: () => void;
     onPrevWeek: () => void;
@@ -34,7 +33,7 @@ export default function TrackerHeader({
     currentDate,
     weekStart,
     syncState,
-    reminderPermission,
+    remindersOn,
     onReminderClick,
     onShowBadges,
     onPrevWeek,
@@ -43,7 +42,6 @@ export default function TrackerHeader({
     onPickDate,
 }: TrackerHeaderProps) {
     const sync = SYNC[syncState];
-    const remindersOn = reminderPermission === 'granted';
     const isCurrentWeek = isSameWeek(weekStart, new Date(), { weekStartsOn: 1 });
 
     return (
@@ -61,8 +59,8 @@ export default function TrackerHeader({
                     <button
                         type="button"
                         onClick={onReminderClick}
-                        aria-label={remindersOn ? 'Send a progress reminder' : 'Enable reminders'}
-                        title={remindersOn ? 'Send a progress reminder' : 'Enable reminders'}
+                        aria-label="Reminders"
+                        title={remindersOn ? 'Reminders are on' : 'Set up reminders'}
                         className={`${CHIP} ${remindersOn
                             ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20'
                             : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'

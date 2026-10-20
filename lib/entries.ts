@@ -14,6 +14,17 @@ export function applyEntryChange(list: Entry[], taskId: string, dateStr: string,
     return updated;
 }
 
+// Set the note for one task/date cell, inserting an unticked entry if missing. Never mutates `list`.
+export function applyNoteChange(list: Entry[], taskId: string, dateStr: string, note: string | null): Entry[] {
+    const matchIndex = list.findIndex((e) => e.task_id === taskId && e.entry_date === dateStr);
+    if (matchIndex === -1) {
+        return [...list, { task_id: taskId, entry_date: dateStr, completed: false, note }];
+    }
+    const updated = [...list];
+    updated[matchIndex] = { ...updated[matchIndex], note };
+    return updated;
+}
+
 // Overlay unsynced offline check-ins on top of data loaded from the server
 export function applyOfflineQueue(list: Entry[], queue: QueuedEntry[]): Entry[] {
     return queue.reduce((acc, q) => applyEntryChange(acc, q.task_id, q.entry_date, q.completed), list);

@@ -3,8 +3,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type { Database } from '@/lib/database.types';
 
 const PUBLIC_ROUTES = ['/login', '/signup'];
+// Called by a scheduler, not a browser: no session; the route checks its own secret
+const MACHINE_ROUTES = ['/api/reminders/cron'];
 
 export async function updateSession(request: NextRequest) {
+    if (MACHINE_ROUTES.includes(request.nextUrl.pathname)) return NextResponse.next();
+
     let supabaseResponse = NextResponse.next({ request });
 
     const supabase = createServerClient<Database>(

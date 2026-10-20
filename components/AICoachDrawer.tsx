@@ -1,51 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Sparkles, Mic, MicOff, Send, X, Plus, CheckCircle2, Loader2, Bot, Target, MessageSquare, ShieldAlert } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { Sparkles, Mic, Send, X, Plus, CheckCircle2, Loader2, Bot, Target, MessageSquare, ShieldAlert } from 'lucide-react';
 import type { CoachHabitStat } from '@/lib/ai-schemas';
-
-// Minimal Web Speech API types (not part of TypeScript's DOM lib)
-interface SpeechRecognitionLike {
-    continuous: boolean;
-    interimResults: boolean;
-    lang: string;
-    onstart: (() => void) | null;
-    onend: (() => void) | null;
-    onerror: (() => void) | null;
-    onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-    start(): void;
-    stop(): void;
-}
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
-type DictationTarget = 'log' | 'goal';
-
-// Microphone toggle shown inside a text input; pulses red while listening
-function MicButton({ listening, onClick }: { listening: boolean; onClick: () => void }) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            aria-label={listening ? 'Stop voice input' : 'Speak instead of typing'}
-            aria-pressed={listening}
-            title={listening ? 'Listening… tap to stop' : 'Voice input'}
-            className={`w-9 h-9 shrink-0 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${listening
-                ? 'bg-red-500 text-white animate-pulse'
-                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'
-                }`}
-        >
-            {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-        </button>
-    );
-}
-
-function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
-    const w = window as Window & {
-        SpeechRecognition?: SpeechRecognitionConstructor;
-        webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    };
-    return w.SpeechRecognition ?? w.webkitSpeechRecognition;
-}
+import { useDictation, appendSpoken } from '@/hooks/useDictation';
+import MicButton from '@/components/MicButton';
 
 interface Task {
     id: string;
@@ -100,59 +59,12 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
     const [coachError, setCoachError] = useState<string | null>(null);
     const [coachLoading, setCoachLoading] = useState(false);
 
-    // Voice dictation (Web Speech API) into whichever input's mic was tapped.
-    // Kept in a ref so the mic button can actually stop it.
-    const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-    const [listeningFor, setListeningFor] = useState<DictationTarget | null>(null);
-
-    // Stop listening if the component unmounts mid-dictation
-    useEffect(() => () => recognitionRef.current?.stop(), []);
-
-    const stopDictation = () => recognitionRef.current?.stop();
-
-    const toggleDictation = (target: DictationTarget) => {
-        if (listeningFor === target) {
-            stopDictation();
-            return;
-        }
-
-        const SpeechRecognition = getSpeechRecognition();
-        if (!SpeechRecognition) {
-            alert('Voice input is not supported on this browser. Please type instead.');
-            return;
-        }
-
-        // Only one microphone session at a time
-        stopDictation();
-        const appendTo = target === 'log' ? setLogInput : setGoalInput;
-
-        try {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = false;
-            recognition.lang = 'en-US';
-
-            recognition.onstart = () => setListeningFor(target);
-            recognition.onend = () => {
-                // Ignore the end of a session that a newer one has already replaced
-                if (recognitionRef.current !== recognition) return;
-                recognitionRef.current = null;
-                setListeningFor(null);
-            };
-            recognition.onerror = () => recognition.stop();
-            recognition.onresult = (event) => {
-                const transcript = event.results[0]?.[0]?.transcript?.trim();
-                if (transcript) appendTo((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
-            };
-
-            recognitionRef.current = recognition;
-            recognition.start();
-        } catch (e) {
-            console.error('Speech recognition error:', e);
-            recognitionRef.current = null;
-            setListeningFor(null);
-        }
-    };
+    // Voice input into whichever field's microphone was tapped
+    const dictation = useDictation<'log' | 'goal'>();
+    const stopDictation = dictation.stop;
+    const toggleDictation = (target: 'log' | 'goal') =>
+        dictation.toggle(target, (text) => (target === 'log' ? setLogInput : setGoalInput)((prev) => appendSpoken(prev, text)));
+    const listeningFor = dictation.listeningFor;
 
     const switchTab = (tab: typeof activeTab) => {
         stopDictation();

@@ -30,9 +30,9 @@ function seed() {
     return {
         tasks: [
             // Long-standing habit, done every day for the last 10 days
-            { id: TASK_A, user_id: USER_ID, name: 'Read 10 pages', category: 'Personal', sort_order: 0, archived: false, created_at: '2026-08-01T08:00:00.000Z' },
+            { id: TASK_A, user_id: USER_ID, name: 'Read 10 pages', category: 'Personal', sort_order: 0, archived: false, schedule_mask: 127, created_at: '2026-08-01T08:00:00.000Z' },
             // Created yesterday and done both days: its rate must not be diluted by days before it existed
-            { id: TASK_B, user_id: USER_ID, name: 'Drink water', category: 'Health', sort_order: 1, archived: false, created_at: '2026-10-13T08:00:00.000Z' },
+            { id: TASK_B, user_id: USER_ID, name: 'Drink water', category: 'Health', sort_order: 1, archived: false, schedule_mask: 127, created_at: '2026-10-13T08:00:00.000Z' },
         ],
         entries: [
             ...Array.from({ length: 10 }, (_, i) => ({ task_id: TASK_A, user_id: USER_ID, entry_date: `2026-10-${String(i + 5).padStart(2, '0')}`, completed: true })),

@@ -1,7 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ArrowUp, ArrowDown, Pencil, Share2, Trash2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, Pencil, Share2, Trash2, CalendarDays } from 'lucide-react';
+import { describeSchedule } from '@/lib/schedule';
 import type { Task } from '@/lib/types';
 import Sheet from '@/components/Sheet';
 
@@ -12,12 +13,13 @@ interface HabitActionSheetProps {
     onMove: (direction: -1 | 1) => void;
     onEdit: () => void;
     onShare: () => void;
+    onSchedule: () => void;
     onRemove: () => void;
     onClose: () => void;
 }
 
 // Owner actions for a habit, as a thumb-friendly list (replaces a cramped row of icon buttons)
-export default function HabitActionSheet({ task, canMoveUp, canMoveDown, onMove, onEdit, onShare, onRemove, onClose }: HabitActionSheetProps) {
+export default function HabitActionSheet({ task, canMoveUp, canMoveDown, onMove, onEdit, onShare, onSchedule, onRemove, onClose }: HabitActionSheetProps) {
     // Every action closes the sheet first
     const run = (action: () => void) => () => {
         onClose();
@@ -28,6 +30,7 @@ export default function HabitActionSheet({ task, canMoveUp, canMoveDown, onMove,
         { label: 'Move up', ariaLabel: `Move ${task.name} up`, icon: <ArrowUp className="w-5 h-5" />, onClick: () => onMove(-1), disabled: !canMoveUp },
         { label: 'Move down', ariaLabel: `Move ${task.name} down`, icon: <ArrowDown className="w-5 h-5" />, onClick: () => onMove(1), disabled: !canMoveDown },
         { label: 'Rename', icon: <Pencil className="w-5 h-5" />, onClick: run(onEdit) },
+        { label: `Schedule · ${describeSchedule(task.schedule_mask)}`, ariaLabel: `Schedule for ${task.name}`, icon: <CalendarDays className="w-5 h-5" />, onClick: run(onSchedule) },
         { label: 'Share', icon: <Share2 className="w-5 h-5" />, onClick: run(onShare) },
         { label: 'Archive or delete', icon: <Trash2 className="w-5 h-5" />, onClick: run(onRemove), danger: true },
     ];

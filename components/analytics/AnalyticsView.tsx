@@ -28,6 +28,7 @@ import type { WeeklyReportPayload, WeeklyReportResponse } from '@/lib/ai-schemas
 import type { Task } from '@/lib/types';
 import { toDateStr } from '@/lib/dates';
 import { buildCategoryOptions, matchesCategory, ALL_CATEGORIES } from '@/lib/categories';
+import { isDueOn } from '@/lib/schedule';
 import type { Database } from '@/lib/database.types';
 import { MILESTONES } from '@/lib/milestones';
 import CategoryFilter from '@/components/CategoryFilter';
@@ -264,7 +265,7 @@ export default function AnalyticsView({ userId }: { userId: string }) {
         let active = 0;
         let completed = 0;
         for (const t of filteredTasks) {
-            if ((activeFrom.get(t.id) ?? dateStr) > dateStr) continue;
+            if ((activeFrom.get(t.id) ?? dateStr) > dateStr || !isDueOn(t.schedule_mask, dateStr)) continue;
             active += 1;
             if (done?.has(t.id)) completed += 1;
         }
@@ -289,7 +290,9 @@ export default function AnalyticsView({ userId }: { userId: string }) {
             const fromStr = taskStart > rangeStartStr ? taskStart : rangeStartStr;
             const trackedDays = fromStr > todayStr
                 ? []
-                : eachDayOfInterval({ start: parseISO(fromStr), end: parseISO(todayStr) }).map(toDateStr);
+                : eachDayOfInterval({ start: parseISO(fromStr), end: parseISO(todayStr) })
+                    .map(toDateStr)
+                    .filter((d) => isDueOn(task.schedule_mask, d));
 
             const doneDates = new Set(completionDatesByTask.get(task.id) ?? []);
             const completionsInRange = trackedDays.filter((d) => doneDates.has(d)).length;
@@ -427,9 +430,10 @@ export default function AnalyticsView({ userId }: { userId: string }) {
         const habits = filteredTasks.slice(0, 50).map((task) => {
             const done = new Set(completionDatesByTask.get(task.id) ?? []);
             const from = activeFrom.get(task.id) ?? todayStr;
-            // Only days on which the habit existed count as tracked
-            const trackedLast7 = last7.filter((d) => d >= from);
-            const trackedPrev7 = prev7.filter((d) => d >= from);
+            // Only due days on which the habit existed count as tracked
+            const tracked = (d: string) => d >= from && isDueOn(task.schedule_mask, d);
+            const trackedLast7 = last7.filter(tracked);
+            const trackedPrev7 = prev7.filter(tracked);
             const streaks = streaksByTask[task.id];
 
             return {
@@ -735,7 +739,7 @@ export default function AnalyticsView({ userId }: { userId: string }) {
                                 {/* Progress Circle or Box */}
                                 <div
                                     className="flex flex-col items-center justify-center p-2 sm:p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-900 min-w-[55px] sm:min-w-[70px] shrink-0"
-                                    title={`Completed on ${taskStat.rate}% of the ${taskStat.trackedDays} day${taskStat.trackedDays !== 1 ? 's' : ''} this habit has existed in the selected range`}
+                                    title={`Completed on ${taskStat.rate}% of the ${taskStat.trackedDays} day${taskStat.trackedDays !== 1 ? 's' : ''} this habit was due in the selected range`}
                                 >
                                     <Percent className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-violet-500 dark:text-violet-400 mb-0.5" />
                                     <span className="text-base sm:text-lg font-extrabold text-slate-800 dark:text-white tracking-tight leading-none">

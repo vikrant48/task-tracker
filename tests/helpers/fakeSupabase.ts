@@ -3,7 +3,7 @@
 
 type Row = Record<string, unknown>;
 type Op = 'select' | 'insert' | 'update' | 'upsert' | 'delete';
-type Filter = { kind: 'eq' | 'gte' | 'lte'; column: string; value: unknown };
+type Filter = { kind: 'eq' | 'gte' | 'lte' | 'in'; column: string; value: unknown };
 
 export interface RecordedCall {
     table: string;
@@ -30,11 +30,12 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
         filters.every((f) => {
             const v = row[f.column] as string;
             if (f.kind === 'eq') return v === f.value;
+            if (f.kind === 'in') return (f.value as unknown[]).includes(v);
             if (f.kind === 'gte') return v >= (f.value as string);
             return v <= (f.value as string);
         });
 
-    function execute(call: RecordedCall & { range?: [number, number]; single?: boolean; returning?: boolean }) {
+    function execute(call: RecordedCall & { range?: [number, number]; single?: boolean; returning?: boolean; head?: boolean }) {
         const failure = options.failOn?.(call);
         if (failure) return { data: null, error: failure };
 
@@ -44,6 +45,8 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
             case 'select': {
                 let rows = table.filter((r) => matches(r, call.filters));
                 if (call.range) rows = rows.slice(call.range[0], call.range[1] + 1);
+                // select(cols, { count: 'exact', head: true }) returns only the count
+                if (call.head) return { data: null, count: rows.length, error: null };
                 return { data: rows.map((r) => ({ ...r })), error: null };
             }
             case 'insert': {
@@ -61,11 +64,12 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
                 const items = (Array.isArray(call.payload) ? call.payload : [call.payload]) as Row[];
                 // Mirrors UNIQUE (task_id, user_id, entry_date)
                 for (const item of items) {
-                    const existing = table.find(
-                        (r) => r.task_id === item.task_id && r.user_id === item.user_id && r.entry_date === item.entry_date
-                    );
+                    // By primary key when given, else UNIQUE (task_id, user_id, entry_date) on entries
+                    const existing = item.id
+                        ? table.find((r) => r.id === item.id)
+                        : table.find((r) => r.task_id === item.task_id && r.user_id === item.user_id && r.entry_date === item.entry_date);
                     if (existing) Object.assign(existing, item);
-                    else table.push({ id: newId(), ...item });
+                    else table.push({ id: newId(), completed: false, ...item });
                 }
                 return { data: null, error: null };
             }
@@ -90,7 +94,7 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
     }
 
     function from(table: string) {
-        const call: RecordedCall & { range?: [number, number]; single?: boolean; returning?: boolean } = {
+        const call: RecordedCall & { range?: [number, number]; single?: boolean; returning?: boolean; head?: boolean } = {
             table,
             op: 'select',
             filters: [],
@@ -98,8 +102,9 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
         calls.push(call);
 
         const builder = {
-            select: () => {
+            select: (_columns?: string, opts?: { head?: boolean }) => {
                 if (call.op !== 'select') call.returning = true;
+                if (opts?.head) call.head = true;
                 return builder;
             },
             insert: (payload: unknown) => ((call.op = 'insert'), (call.payload = payload), builder),
@@ -109,7 +114,9 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
             eq: (column: string, value: unknown) => (call.filters.push({ kind: 'eq', column, value }), builder),
             gte: (column: string, value: unknown) => (call.filters.push({ kind: 'gte', column, value }), builder),
             lte: (column: string, value: unknown) => (call.filters.push({ kind: 'lte', column, value }), builder),
+            in: (column: string, value: unknown[]) => (call.filters.push({ kind: 'in', column, value }), builder),
             order: () => builder,
+            limit: (n: number) => ((call.range = [0, n - 1]), builder),
             range: (fromIdx: number, toIdx: number) => ((call.range = [fromIdx, toIdx]), builder),
             single: () => ((call.single = true), builder),
             then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
@@ -118,8 +125,37 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
         return builder;
     }
 
+    // Realtime: postgres_changes listeners; tests push events with `emit`
+    type Listener = (payload: Record<string, unknown>) => void;
+    const listeners = new Map<string, { filter: Record<string, unknown>; callback: Listener }[]>();
+    const channels = new Set<string>();
+    const channel = (name: string) => {
+        channels.add(name);
+        const ch = {
+            on: (_event: string, filter: Record<string, unknown>, callback: Listener) => {
+                listeners.set(name, [...(listeners.get(name) ?? []), { filter, callback }]);
+                return ch;
+            },
+            subscribe: () => ch,
+            name,
+        };
+        return ch;
+    };
+    const removeChannel = async (ch: { name: string }) => {
+        channels.delete(ch.name);
+        listeners.delete(ch.name);
+        return 'ok';
+    };
+    const emit = (table: string, payload: Record<string, unknown>) => {
+        for (const list of listeners.values()) {
+            for (const l of list) if (l.filter.table === table) l.callback({ table, schema: 'public', ...payload });
+        }
+    };
+
     const client = {
         from,
+        channel,
+        removeChannel,
         rpc: async (name: string, args: Record<string, unknown>) => {
             const handler = options.rpc?.[name];
             return handler ? handler(args) : { data: null, error: { message: `rpc ${name} not mocked` } };
@@ -129,5 +165,5 @@ export function createFakeSupabase(db: Record<string, Row[]>, options: FakeSupab
         },
     };
 
-    return { client, calls, db };
+    return { client, calls, db, emit, channels };
 }

@@ -7,11 +7,18 @@ import { toDateStr } from '@/lib/dates';
 import { applyEntryChange, applyOfflineQueue } from '@/lib/entries';
 import { readOfflineQueue } from '@/lib/offline-queue';
 import { calculateTaskStreak, streakCarryInAnchor, streakWindowStart } from '@/lib/streaks';
+import { EVERY_DAY } from '@/lib/schedule';
 
 // Current streaks that don't depend on which week is being viewed: the last STREAK_WINDOW_DAYS of
 // entries are loaded here, `visibleEntries` (the viewed week incl. optimistic changes) overrides them,
 // and anything older comes from the get_streak_carry_in() database function.
-export function useStreaks(supabase: BrowserSupabaseClient, userId: string, visibleEntries: Entry[]) {
+// `scheduleOf` returns a habit's schedule mask, so days off are skipped rather than breaking a streak.
+export function useStreaks(
+    supabase: BrowserSupabaseClient,
+    userId: string,
+    visibleEntries: Entry[],
+    scheduleOf: (taskId: string) => number = () => EVERY_DAY
+) {
     const [recentEntries, setRecentEntries] = useState<Entry[]>([]);
     const [carryIn, setCarryIn] = useState<Record<string, number>>({});
     const [reloadKey, setReloadKey] = useState(0);
@@ -71,8 +78,8 @@ export function useStreaks(supabase: BrowserSupabaseClient, userId: string, visi
     }, [visibleEntries, recentEntries]);
 
     const getStreak = useCallback(
-        (taskId: string) => calculateTaskStreak(taskId, isEntryDone, carryIn[taskId] || 0),
-        [isEntryDone, carryIn]
+        (taskId: string) => calculateTaskStreak(taskId, isEntryDone, carryIn[taskId] || 0, new Date(), scheduleOf(taskId)),
+        [isEntryDone, carryIn, scheduleOf]
     );
 
     // Keep streak data in step with a saved (or queued) change
@@ -84,5 +91,8 @@ export function useStreaks(supabase: BrowserSupabaseClient, userId: string, visi
         }
     }, []);
 
-    return { isEntryDone, getStreak, recordChange };
+    // Re-fetch the server-side run lengths (e.g. after a habit's schedule changed)
+    const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+    return { isEntryDone, getStreak, recordChange, reload };
 }

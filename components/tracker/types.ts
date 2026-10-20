@@ -23,4 +23,8 @@ export interface TaskRowProps {
     onToggle: (taskId: string, dateStr: string, currentlyCompleted: boolean) => void;
     onShare: (taskId: string) => void;
     onRemove: (task: Task) => void;
+    onSchedule: (task: Task) => void;
+    // Your note on a habit for a day
+    noteOf: (taskId: string, dateStr: string) => string | null;
+    onNote: (task: Task, dateStr: string) => void;
 }

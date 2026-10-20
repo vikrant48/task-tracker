@@ -9,7 +9,12 @@ export function buildCsv(header: string[], rows: string[][]): string {
 }
 
 export function downloadCsv(filename: string, content: string) {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    downloadFile(filename, content, 'text/csv;charset=utf-8;');
+}
+
+// Save text as a file via a temporary link
+export function downloadFile(filename: string, content: string, type: string) {
+    const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

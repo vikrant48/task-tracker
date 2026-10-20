@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isToday } from 'date-fns';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Download, DatabaseBackup } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Entry, MobileViewMode, Task } from '@/lib/types';
 import { toDateStr } from '@/lib/dates';
 import { buildCategoryOptions, matchesCategory, ALL_CATEGORIES } from '@/lib/categories';
 import { buildCsv, downloadCsv } from '@/lib/csv';
+import { isDueOn } from '@/lib/schedule';
 import { useCheckIns } from '@/hooks/useCheckIns';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import CategoryFilter from '@/components/CategoryFilter';
@@ -15,6 +16,7 @@ import ErrorBanner from '@/components/ErrorBanner';
 import LoadingState from '@/components/LoadingState';
 import ViewModeSwitch from '@/components/ViewModeSwitch';
 import CheckInButton from '@/components/tracker/CheckInButton';
+import BackupSheet from './BackupSheet';
 
 const NAV_ARROW = 'w-11 h-11 shrink-0 flex items-center justify-center rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white active:bg-slate-200/60 dark:active:bg-slate-800 transition-colors cursor-pointer';
 
@@ -32,6 +34,8 @@ export default function HistoryView({ userId }: { userId: string }) {
     const [error, setError] = useState<string | null>(null);
     const [mobileViewMode, setMobileViewMode] = useState<MobileViewMode>('cards');
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>(ALL_CATEGORIES);
+    const [showBackup, setShowBackup] = useState(false);
+    const [reloadKey, setReloadKey] = useState(0);
 
     // Fetch tasks and entries for the active month
     useEffect(() => {
@@ -77,7 +81,7 @@ export default function HistoryView({ userId }: { userId: string }) {
         return () => {
             cancelled = true;
         };
-    }, [userId, currentMonth, supabase]);
+    }, [userId, currentMonth, supabase, reloadKey]);
 
     const daysInMonth = useMemo(
         () => eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) }),
@@ -103,7 +107,7 @@ export default function HistoryView({ userId }: { userId: string }) {
             filteredTasks.map((task) => [
                 task.name,
                 task.category || 'General',
-                ...days.map((d) => (isCompleted(task.id, d) ? 'Yes' : 'No')),
+                ...days.map((d) => (isCompleted(task.id, d) ? 'Yes' : isDueOn(task.schedule_mask, d) ? 'No' : 'Rest')),
             ])
         );
         downloadCsv(`focusflow_history_${format(currentMonth, 'yyyy_MM')}.csv`, csv);
@@ -111,24 +115,40 @@ export default function HistoryView({ userId }: { userId: string }) {
 
     return (
         <div className="flex-1 flex flex-col gap-4 sm:gap-6">
-            {/* Title + export */}
+            {/* Title, CSV export and backup */}
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">History</h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400">Every habit, day by day</p>
                 </div>
-                <button
-                    type="button"
-                    onClick={exportToCSV}
-                    disabled={filteredTasks.length === 0}
-                    aria-label="Export CSV"
-                    title="Export CSV"
-                    className="h-10 min-w-10 px-2.5 sm:px-4 flex items-center justify-center gap-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                >
-                    <Download className="w-4 h-4" />
-                    <span className="hidden sm:inline">Export CSV</span>
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowBackup(true)}
+                        aria-label="Backup and restore"
+                        title="Backup and restore"
+                        className="h-10 min-w-10 px-2.5 sm:px-4 flex items-center justify-center gap-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm transition-colors cursor-pointer"
+                    >
+                        <DatabaseBackup className="w-4 h-4" />
+                        <span className="hidden sm:inline">Backup</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={exportToCSV}
+                        disabled={filteredTasks.length === 0}
+                        aria-label="Export CSV"
+                        title="Export CSV"
+                        className="h-10 min-w-10 px-2.5 sm:px-4 flex items-center justify-center gap-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    >
+                        <Download className="w-4 h-4" />
+                        <span className="hidden sm:inline">Export CSV</span>
+                    </button>
+                </div>
             </div>
+
+            {showBackup && (
+                <BackupSheet supabase={supabase} userId={userId} onRestored={() => setReloadKey((k) => k + 1)} onClose={() => setShowBackup(false)} />
+            )}
 
             {/* Month navigation: arrows around a tappable month (opens the native month picker) */}
             <div className="flex items-center bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl md:self-start">
@@ -161,7 +181,7 @@ export default function HistoryView({ userId }: { userId: string }) {
                 <div className="min-w-0 flex-1">
                     <CategoryFilter options={categoryOptions} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} />
                 </div>
-                <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="Habit cards" gridLabel="Full month grid" />
+                <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="Habit cards" gridLabel="Full month grid" phoneOnly />
             </div>
 
             {/* Phone habit cards: a month calendar per habit */}
@@ -169,7 +189,8 @@ export default function HistoryView({ userId }: { userId: string }) {
                 <div className="sm:hidden flex flex-col gap-3">
                     {filteredTasks.map((task) => {
                         const completedDays = daysInMonth.filter((d) => isCompleted(task.id, toDateStr(d))).length;
-                        const pct = Math.round((completedDays / daysInMonth.length) * 100);
+                        const dueDays = daysInMonth.filter((d) => isDueOn(task.schedule_mask, d)).length;
+                        const pct = dueDays ? Math.min(100, Math.round((completedDays / dueDays) * 100)) : 0;
 
                         return (
                             <div key={task.id} className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-900 p-4 rounded-2xl flex flex-col gap-3 shadow-sm">
@@ -182,7 +203,7 @@ export default function HistoryView({ userId }: { userId: string }) {
                                     </div>
                                     <div className="text-right shrink-0">
                                         <span className="block text-base font-extrabold text-violet-600 dark:text-violet-400">{pct}%</span>
-                                        <span className="block text-xs font-semibold text-slate-400">{completedDays}/{daysInMonth.length} days</span>
+                                        <span className="block text-xs font-semibold text-slate-400">{completedDays}/{dueDays} days</span>
                                     </div>
                                 </div>
 
@@ -196,17 +217,21 @@ export default function HistoryView({ userId }: { userId: string }) {
                                         const dateStr = toDateStr(day);
                                         const isFuture = dateStr > todayStr;
                                         const completed = isCompleted(task.id, dateStr);
+                                        // Days off can't be ticked (an old tick stays toggleable so it can be undone)
+                                        const rest = !completed && !isDueOn(task.schedule_mask, dateStr);
 
                                         return (
                                             <button
                                                 key={dateStr}
                                                 type="button"
-                                                disabled={isFuture}
-                                                onClick={() => !isFuture && handleToggle(task.id, dateStr, completed)}
-                                                aria-label={`${task.name}, ${dateStr}`}
+                                                disabled={isFuture || rest}
+                                                onClick={() => !isFuture && !rest && handleToggle(task.id, dateStr, completed)}
+                                                aria-label={`${task.name}, ${dateStr}${rest ? ', rest day' : ''}`}
                                                 aria-pressed={completed}
                                                 className={`h-9 rounded-lg text-xs font-bold flex items-center justify-center transition-colors ${isFuture
                                                     ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                                                    : rest
+                                                        ? 'border border-dashed border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-600 cursor-not-allowed'
                                                     : completed
                                                         ? 'bg-violet-600 text-white cursor-pointer'
                                                         : 'bg-slate-100 dark:bg-slate-950/60 text-slate-500 dark:text-slate-500 active:bg-slate-200 dark:active:bg-slate-800 cursor-pointer'
@@ -289,6 +314,7 @@ export default function HistoryView({ userId }: { userId: string }) {
                                                             dateStr={dateStr}
                                                             completed={completed}
                                                             isFuture={isFuture}
+                                                            rest={!completed && !isDueOn(task.schedule_mask, dateStr)}
                                                             onToggle={() => handleToggle(task.id, dateStr, completed)}
                                                         />
                                                     </div>

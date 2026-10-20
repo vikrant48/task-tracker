@@ -4,6 +4,7 @@ type Tables = Database['public']['Tables'];
 
 export type Task = Tables['tasks']['Row'];
 export type TaskShare = Tables['task_shares']['Row'];
+export type DailyTask = Tables['daily_tasks']['Row'];
 
 // A completion cell as the UI tracks it (rows from the DB have more columns; only these are needed)
 export interface Entry {
@@ -11,6 +12,8 @@ export interface Entry {
     task_id: string;
     entry_date: string;
     completed: boolean;
+    // Your note for that day (max 500 chars)
+    note?: string | null;
 }
 
 // Another member's completed day on a habit shared with you (read-only)
@@ -31,6 +34,8 @@ export interface QueuedEntry {
 export interface NewHabit {
     name: string;
     category: string;
+    // Weekdays due (see lib/schedule.ts); every day when omitted
+    schedule_mask?: number;
 }
 
 export type SyncState = 'synced' | 'syncing' | 'offline';

@@ -4,7 +4,7 @@ import { useCallback, useMemo, useOptimistic, useRef, useTransition, type Dispat
 import type { BrowserSupabaseClient } from '@/lib/supabase/client';
 import type { Entry, QueuedEntry } from '@/lib/types';
 import { toDateStr } from '@/lib/dates';
-import { applyEntryChange, ENTRY_CONFLICT_COLUMNS } from '@/lib/entries';
+import { applyEntryChange, applyNoteChange, ENTRY_CONFLICT_COLUMNS } from '@/lib/entries';
 
 interface UseCheckInsOptions {
     supabase: BrowserSupabaseClient;
@@ -30,6 +30,9 @@ export function useCheckIns({ supabase, userId, entries, setEntries, onError, en
 
     const cells = useMemo(() => new Map(checkIns.map((e) => [`${e.task_id}|${e.entry_date}`, e.completed])), [checkIns]);
     const isCompleted = useCallback((taskId: string, dateStr: string) => cells.get(`${taskId}|${dateStr}`) ?? false, [cells]);
+
+    const notes = useMemo(() => new Map(entries.filter((e) => e.note).map((e) => [`${e.task_id}|${e.entry_date}`, e.note as string])), [entries]);
+    const noteOf = useCallback((taskId: string, dateStr: string) => notes.get(`${taskId}|${dateStr}`) ?? null, [notes]);
 
     const commit = (taskId: string, dateStr: string, completed: boolean) => {
         setEntries((prev) => applyEntryChange(prev, taskId, dateStr, completed));
@@ -71,5 +74,26 @@ export function useCheckIns({ supabase, userId, entries, setEntries, onError, en
         });
     };
 
-    return { checkIns, isCompleted, toggle };
+    // Save (or clear, when blank) the note for a day. Needs a connection; resolves to whether it was saved.
+    const saveNote = async (taskId: string, dateStr: string, text: string): Promise<boolean> => {
+        const note = text.trim().slice(0, 500) || null;
+        if (!navigator.onLine) {
+            onError("You're offline. Notes can be saved once you're back online.");
+            return false;
+        }
+        // Only the note column is sent, so an existing tick is kept (and a new row starts unticked)
+        const { error } = await supabase.from('entries').upsert(
+            { task_id: taskId, user_id: userId, entry_date: dateStr, note },
+            { onConflict: ENTRY_CONFLICT_COLUMNS }
+        );
+        if (error) {
+            console.error('Error saving note:', error);
+            onError('Could not save the note. Please try again.');
+            return false;
+        }
+        setEntries((prev) => applyNoteChange(prev, taskId, dateStr, note));
+        return true;
+    };
+
+    return { checkIns, isCompleted, toggle, noteOf, saveNote };
 }

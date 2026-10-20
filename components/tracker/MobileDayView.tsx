@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { format, isToday } from 'date-fns';
-import { Check, X, Users, MoreVertical } from 'lucide-react';
+import { Check, X, Users, MoreVertical, StickyNote } from 'lucide-react';
 import type { Task } from '@/lib/types';
 import { toDateStr } from '@/lib/dates';
+import { isDueOn } from '@/lib/schedule';
 import CheckInButton from './CheckInButton';
 import HabitActionSheet from './HabitActionSheet';
 import { StreakChip } from './StreakBadges';
@@ -12,14 +13,16 @@ import type { TaskRowProps } from './types';
 
 interface MobileDayViewProps extends TaskRowProps {
     weekDays: Date[];
+    className?: string;
     // Touch-friendly reordering of your own habits
     onMove: (taskId: string, direction: -1 | 1) => void;
 }
 
-// Phone "cards" view: a day strip with progress, then one card per habit for the selected day.
+// "Cards" view (default on phones): a day strip with progress, then one card per habit for the selected day.
 // Render with a key per week so the selected day resets when the week changes.
 export default function MobileDayView({
     weekDays,
+    className = '',
     tasks,
     userId,
     todayStr,
@@ -31,24 +34,30 @@ export default function MobileDayView({
     onToggle,
     onShare,
     onRemove,
+    onSchedule,
+    noteOf,
+    onNote,
     onMove,
 }: MobileDayViewProps) {
     const [selectedDayIndex, setSelectedDayIndex] = useState(() => Math.max(0, weekDays.findIndex((d) => isToday(d))));
     const [menuTask, setMenuTask] = useState<Task | null>(null);
 
-    const completedOn = (dateStr: string) => tasks.filter((t) => isCompleted(t.id, dateStr)).length;
+    // Per day, only habits due that day count toward progress
+    const dueOn = (dateStr: string) => tasks.filter((t) => isDueOn(t.schedule_mask, dateStr));
+    const completedOn = (dateStr: string) => dueOn(dateStr).filter((t) => isCompleted(t.id, dateStr)).length;
 
     const selectedDay = weekDays[selectedDayIndex] ?? weekDays[0];
     const selectedDateStr = toDateStr(selectedDay);
     const selectedCompleted = completedOn(selectedDateStr);
-    const pct = tasks.length > 0 ? Math.round((selectedCompleted / tasks.length) * 100) : 0;
+    const selectedDue = dueOn(selectedDateStr).length;
+    const pct = selectedDue > 0 ? Math.round((selectedCompleted / selectedDue) * 100) : 0;
     const isFuture = selectedDateStr > todayStr;
     // Only your own habits can be moved, so up/down skip over habits shared with you
     const ownedIds = tasks.filter((t) => t.user_id === userId).map((t) => t.id);
     const menuIndex = menuTask ? ownedIds.indexOf(menuTask.id) : -1;
 
     return (
-        <div className="sm:hidden flex flex-col gap-3">
+        <div className={`flex flex-col gap-3 ${className}`}>
             {/* Day strip & progress */}
             <section aria-label="Choose a day" className="bg-white dark:bg-slate-900/40 p-3 border border-slate-200 dark:border-slate-900 rounded-2xl">
                 <div className="grid grid-cols-7 gap-1">
@@ -56,7 +65,8 @@ export default function MobileDayView({
                         const isSelected = idx === selectedDayIndex;
                         const isDayToday = isToday(day);
                         const dayCompleted = completedOn(toDateStr(day));
-                        const allDone = tasks.length > 0 && dayCompleted === tasks.length;
+                        const dueCount = dueOn(toDateStr(day)).length;
+                        const allDone = dueCount > 0 && dayCompleted === dueCount;
 
                         return (
                             <button
@@ -86,7 +96,7 @@ export default function MobileDayView({
                         {isToday(selectedDay) ? 'Today' : format(selectedDay, 'EEEE, MMM d')}
                     </span>
                     <span className="font-bold text-violet-600 dark:text-violet-400">
-                        {selectedCompleted} of {tasks.length} done
+                        {selectedCompleted} of {selectedDue} done
                     </span>
                 </div>
                 <div className="mt-2 w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Completed today">
@@ -99,6 +109,7 @@ export default function MobileDayView({
                 const completed = isCompleted(task.id, selectedDateStr);
                 const streak = getStreak(task.id);
                 const partners = partnerCount(task.id, selectedDateStr);
+                const note = noteOf(task.id, selectedDateStr);
 
                 return (
                     <div
@@ -114,6 +125,7 @@ export default function MobileDayView({
                             dateStr={selectedDateStr}
                             completed={completed}
                             isFuture={isFuture}
+                            rest={!completed && !isDueOn(task.schedule_mask, selectedDateStr)}
                             partnerCount={partners}
                             onToggle={() => onToggle(task.id, selectedDateStr, completed)}
                         />
@@ -162,9 +174,29 @@ export default function MobileDayView({
                                             </span>
                                         )}
                                     </div>
+                                    {note && (
+                                        <button
+                                            type="button"
+                                            onClick={() => onNote(task, selectedDateStr)}
+                                            className="mt-1.5 text-left text-sm text-slate-600 dark:text-slate-300 line-clamp-2 italic cursor-pointer"
+                                        >
+                                            {note}
+                                        </button>
+                                    )}
                                 </>
                             )}
                         </div>
+
+                        {editing.taskId !== task.id && !isFuture && (
+                            <button
+                                onClick={() => onNote(task, selectedDateStr)}
+                                type="button"
+                                className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl active:bg-slate-100 dark:active:bg-slate-800 cursor-pointer ${note ? 'text-amber-500' : 'text-slate-400'}`}
+                                aria-label={`${note ? 'Edit' : 'Add'} note for ${task.name}`}
+                            >
+                                <StickyNote className="w-5 h-5" />
+                            </button>
+                        )}
 
                         {task.user_id === userId && editing.taskId !== task.id && (
                             <button
@@ -190,6 +222,7 @@ export default function MobileDayView({
                     onEdit={() => editing.start(menuTask)}
                     onShare={() => onShare(menuTask.id)}
                     onRemove={() => onRemove(menuTask)}
+                    onSchedule={() => onSchedule(menuTask)}
                     onClose={() => setMenuTask(null)}
                 />
             )}

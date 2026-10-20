@@ -3,11 +3,13 @@
 import { useState, type FormEvent } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
 import { HABIT_CATEGORIES } from '@/lib/categories';
+import { EVERY_DAY, describeSchedule } from '@/lib/schedule';
+import ScheduleDays from './ScheduleDays';
 
 interface AddHabitFormProps {
     adding: boolean;
     // Resolves to whether the habit was saved
-    onAdd: (name: string, category: string) => Promise<boolean>;
+    onAdd: (name: string, category: string, scheduleMask: number) => Promise<boolean>;
 }
 
 // Collapsible "Add New Habit" form
@@ -15,12 +17,16 @@ export default function AddHabitForm({ adding, onAdd }: AddHabitFormProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [name, setName] = useState('');
     const [category, setCategory] = useState<string>('General');
+    const [scheduleMask, setScheduleMask] = useState(EVERY_DAY);
+    const [showSchedule, setShowSchedule] = useState(false);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
-        if (await onAdd(name.trim(), category)) {
+        if (await onAdd(name.trim(), category, scheduleMask)) {
             setName('');
+            setScheduleMask(EVERY_DAY);
+            setShowSchedule(false);
             setIsOpen(false);
         }
     };
@@ -71,6 +77,18 @@ export default function AddHabitForm({ adding, onAdd }: AddHabitFormProps) {
                         {cat}
                     </button>
                 ))}
+            </div>
+            <div className="flex flex-col gap-2">
+                <button
+                    type="button"
+                    onClick={() => setShowSchedule((v) => !v)}
+                    aria-expanded={showSchedule}
+                    className="self-start flex items-center gap-2 h-10 text-sm cursor-pointer"
+                >
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-wider">Repeat:</span>
+                    <span className="font-semibold text-violet-600 dark:text-violet-400 underline decoration-dotted underline-offset-4">{describeSchedule(scheduleMask)}</span>
+                </button>
+                {showSchedule && <ScheduleDays mask={scheduleMask} onChange={setScheduleMask} />}
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <input

@@ -20,7 +20,7 @@ const TASK_B = 'bbbbbbbb-0000-4000-8000-000000000002';
 const TASK_C = 'cccccccc-0000-4000-8000-000000000003';
 
 function seedDb() {
-    const base = { user_id: USER.id, archived: false, created_at: '2026-09-01T08:00:00.000Z' };
+    const base = { user_id: USER.id, archived: false, schedule_mask: 127, created_at: '2026-09-01T08:00:00.000Z' };
     return {
         tasks: [
             { ...base, id: TASK_A, name: 'Read 10 pages', category: 'Personal', sort_order: 0 },
@@ -107,6 +107,53 @@ describe('Weekly Tracker', () => {
         await waitFor(() => cell('Drink water', TODAY).forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false')));
         expect(fake.db.entries.some((e) => e.task_id === TASK_B)).toBe(false);
         expect(consoleError).toHaveBeenCalledWith('Error toggling entry:', { message: 'network down' });
+    });
+
+    it('shows days off as rest days and saves a new schedule', async () => {
+        const db = seedDb();
+        db.tasks[2].schedule_mask = 0b1000001; // "Deep work" on weekends only
+        setup(db);
+        await screen.findAllByText('Deep work');
+
+        // Wednesday is a day off: not tickable; Saturday is due
+        screen.getAllByRole('button', { name: `Deep work, ${TODAY}, rest day` }).forEach((b) => expect((b as HTMLButtonElement).disabled).toBe(true));
+        expect(cell('Deep work', '2026-10-17').length).toBeGreaterThan(0);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Schedule for Drink water' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Weekdays' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
+
+        await waitFor(() => expect(fake.db.tasks.find((t) => t.id === TASK_B)?.schedule_mask).toBe(0b0111110));
+        expect(screen.getAllByRole('button', { name: 'Drink water, 2026-10-18, rest day' }).length).toBeGreaterThan(0);
+    });
+
+    it('saves a note for a day and shows it on the card', async () => {
+        setup();
+        await screen.findAllByText('Drink water');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Add note for Drink water' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: '  2 litres  ' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save note' }));
+
+        expect(await screen.findByText('2 litres')).toBeTruthy();
+        // Only the note is sent, so the day stays unticked
+        expect(upserts().at(-1)?.payload).toEqual({ task_id: TASK_B, user_id: USER.id, entry_date: TODAY, note: '2 litres' });
+        cell('Drink water', TODAY).forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
+        expect(screen.getByRole('button', { name: 'Edit note for Drink water' })).toBeTruthy();
+    });
+
+    it('lets you switch between the day cards and the week grid', async () => {
+        setup();
+        await screen.findAllByText('Drink water');
+        expect(screen.getByRole('button', { name: 'Daily cards' }).getAttribute('aria-pressed')).toBe('true');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Full week grid' }));
+        expect(screen.queryByRole('button', { name: 'Add note for Drink water' })).toBeNull();
+        expect(cell('Drink water', '2026-10-12')).toHaveLength(1);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Daily cards' }));
+        expect(screen.getByRole('button', { name: 'Add note for Drink water' })).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Schedule for Drink water' })).toBeNull();
     });
 
     it('does not allow checking future days', async () => {
@@ -196,7 +243,7 @@ describe('Weekly Tracker', () => {
 
         function sharedDb() {
             const db = seedDb();
-            const base = { archived: false, created_at: '2026-09-01T08:00:00.000Z', category: 'Health' };
+            const base = { archived: false, schedule_mask: 127, created_at: '2026-09-01T08:00:00.000Z', category: 'Health' };
             db.tasks.push(
                 { ...base, id: TASK_SHARED_BY_ME, user_id: USER.id, name: 'Morning run', sort_order: 3 },
                 { ...base, id: TASK_SHARED_WITH_ME, user_id: PARTNER, name: 'Partner yoga', sort_order: 0 }
@@ -217,6 +264,29 @@ describe('Weekly Tracker', () => {
             expect(screen.getAllByRole('img', { name: '1 partner completed this day' }).length).toBeGreaterThan(0);
             // The partner's two days don't give *you* a streak
             expect(screen.queryAllByText('2d')).toHaveLength(0);
+        });
+
+        it('shows live check-ins from partners and from your other devices', async () => {
+            setup(sharedDb());
+            await screen.findAllByText('Morning run');
+            const partnerBadges = () => screen.queryAllByRole('img', { name: '1 partner completed this day' }).length;
+            const before = partnerBadges();
+
+            // The partner unticks today
+            act(() => fake.emit('entries', {
+                eventType: 'UPDATE',
+                new: { task_id: TASK_SHARED_BY_ME, user_id: PARTNER, entry_date: TODAY, completed: false, note: null },
+                old: {},
+            }));
+            await waitFor(() => expect(partnerBadges()).toBeLessThan(before));
+
+            // You tick "Drink water" on your phone
+            act(() => fake.emit('entries', {
+                eventType: 'INSERT',
+                new: { task_id: TASK_B, user_id: USER.id, entry_date: TODAY, completed: true, note: null },
+                old: {},
+            }));
+            await waitFor(() => cell('Drink water', TODAY).forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('true')));
         });
 
         it("ticking your box adds your own row and leaves the partner's untouched", async () => {

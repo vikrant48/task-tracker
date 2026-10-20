@@ -114,6 +114,25 @@ self.addEventListener('message', (event) => {
     }
 });
 
+// Scheduled reminder sent by /api/reminders/cron (Web Push), shown even when the app is closed
+self.addEventListener('push', (event) => {
+    let data = {};
+    try {
+        data = event.data ? event.data.json() : {};
+    } catch {
+        data = { body: event.data ? event.data.text() : '' };
+    }
+    event.waitUntil(
+        self.registration.showNotification(data.title || 'FocusFlow Reminder', {
+            body: data.body || 'Don\'t forget to complete your habits for today!',
+            icon: '/icon-192x192.png',
+            badge: '/icon-192x192.png',
+            tag: 'daily-reminder',
+            data: { url: data.url || '/' },
+        })
+    );
+});
+
 // Notification click: focus an open app window or open a new one
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();

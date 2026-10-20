@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Lock, Users } from 'lucide-react';
+import { Check, Lock, Minus, Users } from 'lucide-react';
 
 const STYLES = {
     card: {
@@ -37,26 +37,32 @@ interface CheckInButtonProps {
     onToggle: () => void;
     // Partners who completed this shared habit on this day (shown as a read-only badge)
     partnerCount?: number;
+    // Not a due day for this habit's schedule: shown as a dash and can't be ticked
+    rest?: boolean;
 }
 
 const partnerLabel = (count: number) => `${count} partner${count > 1 ? 's' : ''} completed this day`;
 
-export default function CheckInButton({ taskName, dateStr, completed, isFuture, variant, onToggle, partnerCount = 0 }: CheckInButtonProps) {
+export default function CheckInButton({ taskName, dateStr, completed, isFuture, variant, onToggle, partnerCount = 0, rest = false }: CheckInButtonProps) {
     const style = STYLES[variant];
+    const disabled = isFuture || rest;
 
     return (
         <div className="relative inline-flex shrink-0">
             {partnerCount > 0 && <PartnerBadge count={partnerCount} />}
             <button
-                onClick={() => !isFuture && onToggle()}
-                aria-label={`${taskName}, ${dateStr}`}
+                onClick={() => !disabled && onToggle()}
+                aria-label={rest ? `${taskName}, ${dateStr}, rest day` : `${taskName}, ${dateStr}`}
                 aria-pressed={completed}
-                disabled={isFuture}
+                disabled={disabled}
                 type="button"
-                className={`${style.base} flex items-center justify-center focus:outline-none transition-all border ${isFuture ? style.future : completed ? COMPLETED : style.open}`}
-                title={isFuture ? 'Future dates cannot be filled' : undefined}
+                className={`${style.base} flex items-center justify-center focus:outline-none transition-all border ${rest
+                    ? 'border-dashed border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-600 cursor-default'
+                    : isFuture ? style.future : completed ? COMPLETED : style.open
+                    }`}
+                title={rest ? 'Rest day: not scheduled' : isFuture ? 'Future dates cannot be filled' : undefined}
             >
-                {isFuture ? <Lock className={style.lock} /> : <Check className={style.check} />}
+                {rest ? <Minus className={style.lock} /> : isFuture ? <Lock className={style.lock} /> : <Check className={style.check} />}
             </button>
         </div>
     );

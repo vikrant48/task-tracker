@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { startOfWeek, addDays, subDays } from 'date-fns';
+import { startOfWeek, addDays, subDays, parseISO } from 'date-fns';
 import { CloudOff } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Entry, NewHabit, PartnerCheckIn, Task, TaskShare } from '@/lib/types';
@@ -9,12 +9,16 @@ import { dragTask, moveTask, ownedTaskIds, withOwnedSortOrder } from '@/lib/reor
 import type { CoachHabitStat } from '@/lib/ai-schemas';
 import { toDateStr } from '@/lib/dates';
 import { buildCategoryOptions, matchesCategory, ALL_CATEGORIES } from '@/lib/categories';
+import { EVERY_DAY, isDueOn } from '@/lib/schedule';
 import { applyOfflineQueue, nextSortOrder, sortByOrder } from '@/lib/entries';
 import { readOfflineQueue } from '@/lib/offline-queue';
+import { changedRow, mergeOwnEntry, mergePartnerCheckIn, type EntryChange } from '@/lib/realtime';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { useCheckIns } from '@/hooks/useCheckIns';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useStreaks } from '@/hooks/useStreaks';
 import { useReminders } from '@/hooks/useReminders';
+import { usePushReminders } from '@/hooks/usePushReminders';
 import AICoachDrawer from '@/components/AICoachDrawer';
 import CategoryFilter from '@/components/CategoryFilter';
 import ErrorBanner from '@/components/ErrorBanner';
@@ -29,6 +33,9 @@ import ArchivedHabits from './ArchivedHabits';
 import RemoveHabitDialog from './RemoveHabitDialog';
 import ShareHabitDialog from './ShareHabitDialog';
 import MilestonesDialog from './MilestonesDialog';
+import ScheduleSheet from './ScheduleSheet';
+import NoteSheet from './NoteSheet';
+import ReminderSheet from './ReminderSheet';
 import type { TaskEditing } from './types';
 import type { MobileViewMode } from '@/lib/types';
 
@@ -65,7 +72,10 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
 
     // UI
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>(ALL_CATEGORIES);
-    const [mobileViewMode, setMobileViewMode] = useState<MobileViewMode>('cards');
+    // Until you pick a view: day cards on phones, the week grid on wider screens (pure CSS, so no flash)
+    const [chosenView, setChosenView] = useState<MobileViewMode | null>(null);
+    const isWide = useMediaQuery('(min-width: 640px)');
+    const viewMode = chosenView ?? (isWide ? 'matrix' : 'cards');
     const [addingTask, setAddingTask] = useState(false);
     const [taskPendingRemoval, setTaskPendingRemoval] = useState<Task | null>(null);
     const [sharingTaskId, setSharingTaskId] = useState<string | null>(null);
@@ -76,6 +86,8 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
 
     const { isOffline, syncState, enqueue } = useOfflineSync(supabase, userId, setError);
     const reminders = useReminders();
+    const pushReminders = usePushReminders(supabase, userId);
+    const [showReminders, setShowReminders] = useState(false);
 
     // Load tasks (owned + shared), this week's entries and shares
     useEffect(() => {
@@ -142,7 +154,7 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const todayStr = toDateStr(new Date());
 
-    const { checkIns, isCompleted, toggle: handleToggle } = useCheckIns({
+    const { checkIns, isCompleted, toggle: handleToggle, noteOf, saveNote } = useCheckIns({
         supabase,
         userId,
         entries,
@@ -151,7 +163,33 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
         onError: setError,
         onSaved: (taskId, dateStr, completed) => recordChange(taskId, dateStr, completed),
     });
-    const { isEntryDone, getStreak, recordChange } = useStreaks(supabase, userId, checkIns);
+    const scheduleMasks = useMemo(() => new Map(tasks.map((t) => [t.id, t.schedule_mask])), [tasks]);
+    const scheduleOf = useCallback((taskId: string) => scheduleMasks.get(taskId) ?? EVERY_DAY, [scheduleMasks]);
+    const { isEntryDone, getStreak, recordChange, reload: reloadStreaks } = useStreaks(supabase, userId, checkIns, scheduleOf);
+
+    // Live updates: partners' check-ins on shared habits, and your own from other devices.
+    // RLS decides which rows reach this client.
+    const weekStartStr = toDateStr(startOfWeek(currentDate, { weekStartsOn: 1 }));
+    useEffect(() => {
+        const weekEndStr = toDateStr(addDays(parseISO(weekStartStr), 6));
+        const channel = supabase
+            .channel(`entries-live-${userId}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'entries' }, (payload) => {
+                const change = changedRow(payload as unknown as EntryChange);
+                if (!change || change.row.entry_date < weekStartStr || change.row.entry_date > weekEndStr) return;
+                const { row, deleted } = change;
+                if (row.user_id === userId) {
+                    setEntries((prev) => mergeOwnEntry(prev, row, deleted));
+                    recordChange(row.task_id, row.entry_date, !deleted && row.completed);
+                } else {
+                    setPartnerCheckIns((prev) => mergePartnerCheckIn(prev, row, deleted));
+                }
+            })
+            .subscribe();
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [supabase, userId, weekStartStr, recordChange]);
 
     // How many partners completed a shared habit on a day
     const partnerCounts = useMemo(() => {
@@ -178,6 +216,7 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
                 user_id: userId,
                 name: h.name,
                 category: h.category || 'General',
+                schedule_mask: h.schedule_mask ?? EVERY_DAY,
                 sort_order: baseOrder + i,
             })))
             .select();
@@ -192,11 +231,11 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
         return true;
     };
 
-    const handleAddTask = async (name: string, category: string): Promise<boolean> => {
+    const handleAddTask = async (name: string, category: string, scheduleMask: number = EVERY_DAY): Promise<boolean> => {
         setAddingTask(true);
         setError(null);
         try {
-            return await handleAddTasksBatch([{ name, category }]);
+            return await handleAddTasksBatch([{ name, category, schedule_mask: scheduleMask }]);
         } finally {
             setAddingTask(false);
         }
@@ -374,7 +413,7 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
         const today = toDateStr(now);
         const last7 = Array.from({ length: 7 }, (_, i) => toDateStr(subDays(now, i)));
 
-        return tasks.slice(0, 50).map((t) => ({
+        return tasks.filter((t) => isDueOn(t.schedule_mask, now)).slice(0, 50).map((t) => ({
             name: t.name.slice(0, 120),
             category: (t.category || 'General').slice(0, 40),
             currentStreak: getStreak(t.id),
@@ -391,11 +430,29 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
         return true;
     };
 
-    const handleReminderClick = () => {
+    const [schedulingTask, setSchedulingTask] = useState<Task | null>(null);
+    const [noteCell, setNoteCell] = useState<{ task: Task; dateStr: string } | null>(null);
+
+    const handleSetSchedule = async (task: Task, scheduleMask: number) => {
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, schedule_mask: scheduleMask } : t)));
+        const { data, error: updateError } = await supabase.from('tasks').update({ schedule_mask: scheduleMask }).eq('id', task.id).select('id');
+        if (updateError || !data?.length) {
+            console.error('Error saving schedule:', updateError);
+            setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, schedule_mask: task.schedule_mask } : t)));
+            setError('Could not save the schedule. Please try again.');
+            return;
+        }
+        // Server-side streak runs depend on the schedule
+        reloadStreaks();
+    };
+
+    // "Notify me now": an immediate progress notification (asks for permission first if needed)
+    const notifyProgressNow = () => {
         const today = toDateStr(new Date());
-        const completedToday = tasks.filter((t) => isEntryDone(t.id, today)).length;
-        if (reminders.permission === 'granted') reminders.sendProgressReminder(tasks.length, completedToday);
-        else reminders.enableReminders(tasks.length, completedToday);
+        const dueToday = tasks.filter((t) => isDueOn(t.schedule_mask, today));
+        const completedToday = dueToday.filter((t) => isEntryDone(t.id, today)).length;
+        if (reminders.permission === 'granted') reminders.sendProgressReminder(dueToday.length, completedToday);
+        else reminders.enableReminders(dueToday.length, completedToday);
     };
 
     const categoryOptions = useMemo(() => buildCategoryOptions(tasks), [tasks]);
@@ -414,6 +471,9 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
         onToggle: handleToggle,
         onShare: setSharingTaskId,
         onRemove: setTaskPendingRemoval,
+        onSchedule: setSchedulingTask,
+        noteOf,
+        onNote: (task: Task, dateStr: string) => setNoteCell({ task, dateStr }),
     };
 
     return (
@@ -422,8 +482,8 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
                 currentDate={currentDate}
                 weekStart={weekStart}
                 syncState={syncState}
-                reminderPermission={reminders.permission}
-                onReminderClick={handleReminderClick}
+                remindersOn={pushReminders.enabled}
+                onReminderClick={() => setShowReminders(true)}
                 onShowBadges={() => setShowMilestones(true)}
                 onPrevWeek={() => setCurrentDate((d) => subDays(d, 7))}
                 onToday={() => setCurrentDate(new Date())}
@@ -440,13 +500,13 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
 
             {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
-            {/* Category chips and (phones only) the cards/grid switch share one row */}
+            {/* Category chips and the cards/grid switch share one row */}
             {tasks.length > 0 && (
                 <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
                         <CategoryFilter options={categoryOptions} selected={selectedCategoryFilter} onSelect={setSelectedCategoryFilter} />
                     </div>
-                    <ViewModeSwitch value={mobileViewMode} onChange={setMobileViewMode} cardsLabel="Daily cards" gridLabel="Full week grid" />
+                    <ViewModeSwitch value={viewMode} onChange={setChosenView} cardsLabel="Daily cards" gridLabel="Full week grid" />
                 </div>
             )}
 
@@ -474,21 +534,28 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
                 </div>
             ) : (
                 <>
-                    {mobileViewMode === 'cards' && (
-                        <MobileDayView key={toDateStr(weekStart)} weekDays={weekDays} {...rowProps} onMove={handleMoveTask} />
-                    )}
-
-                    {/* Week grid: always on tablet/desktop, on phones only in grid mode */}
-                    <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden flex-col ${mobileViewMode === 'matrix' ? 'flex' : 'hidden sm:flex'}`}>
-                        <WeekGrid
+                    {chosenView !== 'matrix' && (
+                        <MobileDayView
+                            key={toDateStr(weekStart)}
+                            className={chosenView === null ? 'sm:hidden' : 'w-full sm:max-w-2xl sm:mx-auto'}
                             weekDays={weekDays}
                             {...rowProps}
-                            draggedTaskId={draggedTaskId}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDragEnd={handleDragEnd}
+                            onMove={handleMoveTask}
                         />
-                    </div>
+                    )}
+
+                    {chosenView !== 'cards' && (
+                        <div className={`bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-2xl overflow-hidden flex-col ${chosenView === null ? 'hidden sm:flex' : 'flex'}`}>
+                            <WeekGrid
+                                weekDays={weekDays}
+                                {...rowProps}
+                                draggedTaskId={draggedTaskId}
+                                onDragStart={handleDragStart}
+                                onDragOver={handleDragOver}
+                                onDragEnd={handleDragEnd}
+                            />
+                        </div>
+                    )}
                 </>
             )}
 
@@ -527,6 +594,36 @@ export default function WeeklyTracker({ userId }: { userId: string }) {
             )}
 
             {showMilestones && <MilestonesDialog onClose={() => setShowMilestones(false)} />}
+
+            {schedulingTask && (
+                <ScheduleSheet
+                    task={schedulingTask}
+                    onSave={(mask) => handleSetSchedule(schedulingTask, mask)}
+                    onClose={() => setSchedulingTask(null)}
+                />
+            )}
+
+            {showReminders && (
+                <ReminderSheet
+                    enabled={pushReminders.enabled}
+                    time={pushReminders.time}
+                    onEnable={pushReminders.enable}
+                    onDisable={pushReminders.disable}
+                    onTestNow={notifyProgressNow}
+                    onClose={() => setShowReminders(false)}
+                />
+            )}
+
+            {noteCell && (
+                <NoteSheet
+                    key={`${noteCell.task.id}|${noteCell.dateStr}`}
+                    taskName={noteCell.task.name}
+                    dateStr={noteCell.dateStr}
+                    initialNote={noteOf(noteCell.task.id, noteCell.dateStr) ?? ''}
+                    onSave={(note) => saveNote(noteCell.task.id, noteCell.dateStr, note)}
+                    onClose={() => setNoteCell(null)}
+                />
+            )}
 
             <AICoachDrawer
                 tasks={tasks}

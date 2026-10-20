@@ -8,17 +8,19 @@ interface ViewModeSwitchProps {
     onChange: (mode: MobileViewMode) => void;
     cardsLabel: string;
     gridLabel: string;
+    // Hide on tablet/desktop (where the grid always shows)
+    phoneOnly?: boolean;
 }
 
-// Phone-only segmented control: card view vs full grid. Icon buttons, labelled for screen readers.
-export default function ViewModeSwitch({ value, onChange, cardsLabel, gridLabel }: ViewModeSwitchProps) {
+// Segmented control: card view vs full grid. Icon buttons, labelled for screen readers.
+export default function ViewModeSwitch({ value, onChange, cardsLabel, gridLabel, phoneOnly = false }: ViewModeSwitchProps) {
     const options = [
         { mode: 'cards' as const, label: cardsLabel, Icon: LayoutList },
         { mode: 'matrix' as const, label: gridLabel, Icon: Table2 },
     ];
 
     return (
-        <div role="group" aria-label="View" className="sm:hidden shrink-0 flex p-1 gap-1 rounded-full bg-slate-200/70 dark:bg-slate-900">
+        <div role="group" aria-label="View" className={`${phoneOnly ? 'sm:hidden ' : ''}shrink-0 flex p-1 gap-1 rounded-full bg-slate-200/70 dark:bg-slate-900`}>
             {options.map(({ mode, label, Icon }) => (
                 <button
                     key={mode}

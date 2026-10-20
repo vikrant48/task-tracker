@@ -53,3 +53,25 @@ describe('calculateTaskStreak', () => {
         expect(calculateTaskStreak('t', doneOn(withGap), 50, NOW)).toBe(0);
     });
 });
+
+describe('calculateTaskStreak with a schedule', () => {
+    const MWF = 0b0101010; // Mon, Wed, Fri (same cases as the SQL tests)
+    const done = doneOn(['2026-10-12', '2026-10-14', '2026-10-16']);
+
+    it('a day off neither counts nor breaks the streak', () => {
+        expect(calculateTaskStreak('t', done, 0, new Date(2026, 9, 18, 12), MWF)).toBe(3); // Sunday
+    });
+
+    it('a due day that is not done yet keeps the streak alive', () => {
+        expect(calculateTaskStreak('t', done, 0, new Date(2026, 9, 19, 12), MWF)).toBe(3); // Monday
+    });
+
+    it('a missed due day breaks it', () => {
+        expect(calculateTaskStreak('t', done, 0, new Date(2026, 9, 20, 12), MWF)).toBe(0); // Tuesday
+    });
+
+    it('ticks on days off are ignored', () => {
+        const withExtra = doneOn(['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-16']);
+        expect(calculateTaskStreak('t', withExtra, 0, new Date(2026, 9, 18, 12), MWF)).toBe(3);
+    });
+});

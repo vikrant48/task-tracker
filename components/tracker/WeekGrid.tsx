@@ -1,8 +1,9 @@
 'use client';
 
 import { format, isToday } from 'date-fns';
-import { Check, X, GripVertical, Share2, Users, Trash2, Pencil } from 'lucide-react';
+import { Check, X, GripVertical, Share2, Users, Trash2, Pencil, CalendarDays } from 'lucide-react';
 import { toDateStr } from '@/lib/dates';
+import { isDueOn } from '@/lib/schedule';
 import CheckInButton from './CheckInButton';
 import StreakBadges from './StreakBadges';
 import type { TaskRowProps } from './types';
@@ -31,6 +32,7 @@ export default function WeekGrid({
     onToggle,
     onShare,
     onRemove,
+    onSchedule,
     draggedTaskId,
     onDragStart,
     onDragOver,
@@ -144,6 +146,9 @@ export default function WeekGrid({
                                                                 <button onClick={() => editing.start(task)} type="button" className={`${ACTION_BUTTON} hover:text-violet-500`} title="Edit habit name">
                                                                     <Pencil className="w-3.5 h-3.5" />
                                                                 </button>
+                                                                <button onClick={() => onSchedule(task)} type="button" className={`${ACTION_BUTTON} hover:text-violet-500`} title="Schedule" aria-label={`Schedule for ${task.name}`}>
+                                                                    <CalendarDays className="w-3.5 h-3.5" />
+                                                                </button>
                                                                 <button onClick={() => onShare(task.id)} type="button" className={`${ACTION_BUTTON} hover:text-indigo-500`} title="Share habit with partner">
                                                                     <Share2 className="w-3.5 h-3.5" />
                                                                 </button>
@@ -172,6 +177,7 @@ export default function WeekGrid({
                                                     dateStr={dateStr}
                                                     completed={completed}
                                                     isFuture={dateStr > todayStr}
+                                                    rest={!completed && !isDueOn(task.schedule_mask, dateStr)}
                                                     partnerCount={partnerCount(task.id, dateStr)}
                                                     onToggle={() => onToggle(task.id, dateStr, completed)}
                                                 />

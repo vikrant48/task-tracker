@@ -4,7 +4,7 @@ import type { Task } from '@/lib/types';
 
 const ME = 'me';
 const task = (id: string, user_id: string, category = 'General', sort_order = 0): Task =>
-    ({ id, user_id, name: id, category, sort_order, archived: false, created_at: '2026-01-01' });
+    ({ id, user_id, name: id, category, sort_order, archived: false, created_at: '2026-01-01', schedule_mask: 127 });
 
 // a, b, d are mine; c is shared with me by someone else
 const tasks = [task('a', ME), task('b', ME), task('c', 'partner'), task('d', ME, 'Work')];
