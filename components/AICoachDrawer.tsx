@@ -5,6 +5,7 @@ import { Sparkles, Mic, Send, X, Plus, CheckCircle2, Loader2, Bot, Target, Messa
 import type { CoachHabitStat } from '@/lib/ai-schemas';
 import { useDictation, appendSpoken } from '@/hooks/useDictation';
 import MicButton from '@/components/MicButton';
+import DictationError from '@/components/DictationError';
 
 interface Task {
     id: string;
@@ -320,6 +321,7 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
                                                 </button>
                                             </div>
                                         </div>
+                                        <DictationError message={dictation.error} />
                                     </form>
 
                                     {logFeedback && (
@@ -363,6 +365,7 @@ export default function AICoachDrawer({ tasks, buildCoachStats, onAddTasksBatch,
                                             Generate
                                         </button>
                                     </form>
+                                    <DictationError message={dictation.error} />
 
                                     {generatedHabits.length > 0 && (
                                         <div className="space-y-2 pt-2">

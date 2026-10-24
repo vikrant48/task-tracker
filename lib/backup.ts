@@ -49,6 +49,7 @@ const backupSchema = z.object({
                 completed: z.boolean(),
                 completed_at: timestamp.nullable().optional(),
                 moved_from: dateStr.nullable().optional(),
+                habit_id: z.uuid().nullable().optional(),
                 created_at: timestamp.optional(),
             })
         )
@@ -85,7 +86,7 @@ export async function exportBackup(supabase: BrowserSupabaseClient, userId: stri
         supabase.from('entries').select('task_id, entry_date, completed, completed_at, note').eq('user_id', userId).order('entry_date').range(from, to)
     );
     const dailyTasks = await fetchAll((from, to) =>
-        supabase.from('daily_tasks').select('id, title, task_date, completed, completed_at, moved_from, created_at').eq('user_id', userId).order('task_date').range(from, to)
+        supabase.from('daily_tasks').select('id, title, task_date, completed, completed_at, moved_from, habit_id, created_at').eq('user_id', userId).order('task_date').range(from, to)
     );
 
     return {
@@ -144,7 +145,13 @@ export async function restoreBackup(supabase: BrowserSupabaseClient, userId: str
     }
 
     const ownedDaily = await ownedIds(supabase, 'daily_tasks', userId, backup.daily_tasks.map((t) => t.id));
-    const dailyTasks = backup.daily_tasks.map((t) => ({ ...t, id: ownedDaily.has(t.id) ? t.id : crypto.randomUUID(), user_id: userId }));
+    const dailyTasks = backup.daily_tasks.map((t) => ({
+        ...t,
+        id: ownedDaily.has(t.id) ? t.id : crypto.randomUUID(),
+        // Keep the habit link only to a habit restored above
+        habit_id: t.habit_id ? (taskIdMap.get(t.habit_id) ?? null) : null,
+        user_id: userId,
+    }));
     for (const part of chunks(dailyTasks)) {
         const { error } = await supabase.from('daily_tasks').upsert(part);
         if (error) throw error;

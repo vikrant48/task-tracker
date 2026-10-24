@@ -8,7 +8,7 @@
 --   tasks              habits; owned by user_id; schedule_mask = weekdays the habit is due
 --   task_shares        a habit shared with another user, by email
 --   entries            one check-in per person per habit per day (+ optional note)
---   daily_tasks        one-off to-dos for a single day (can be moved to the next day)
+--   daily_tasks        one-off to-dos for a single day (can be moved to the next day); may link a habit
 --   push_subscriptions browser push endpoints for scheduled reminders
 --   reminder_settings  each user's daily reminder time and timezone
 -- Members of a habit (owner + people it is shared with) can see each other's check-ins,
@@ -90,6 +90,9 @@ ALTER TABLE public.entries ALTER COLUMN user_id SET NOT NULL;
 -- Weekdays a habit is due: bit n = weekday n (0 = Sunday ... 6 = Saturday). 127 = every day.
 ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS schedule_mask SMALLINT NOT NULL DEFAULT 127
     CHECK (schedule_mask BETWEEN 1 AND 127);
+
+-- A daily task added from a habit: completing the task checks the habit in for that day
+ALTER TABLE public.daily_tasks ADD COLUMN IF NOT EXISTS habit_id UUID REFERENCES public.tasks(id) ON DELETE SET NULL;
 
 -- Optional note on a check-in
 ALTER TABLE public.entries ADD COLUMN IF NOT EXISTS note TEXT CHECK (char_length(note) <= 500);

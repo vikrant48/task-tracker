@@ -71,6 +71,25 @@ describe('Daily tasks', () => {
         expect((screen.getByRole('textbox', { name: 'New task' }) as HTMLInputElement).value).toBe('water the plants');
     });
 
+    it('explains why the microphone did not work', async () => {
+        let session: { onerror?: (e: { error: string }) => void; onend?: () => void } = {};
+        (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = class {
+            constructor() { session = this as typeof session; }
+            start() {}
+            stop() { session.onend?.(); }
+        };
+        setup();
+        await screen.findByText('Nothing planned yet');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Speak instead of typing' }));
+        act(() => session.onerror?.({ error: 'not-allowed' }));
+        expect((await screen.findByRole('alert')).textContent).toMatch(/Microphone access is blocked/);
+
+        delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
+        fireEvent.click(screen.getByRole('button', { name: 'Speak instead of typing' }));
+        expect((await screen.findByRole('alert')).textContent).toMatch(/doesn't support voice input/);
+    });
+
     it('ticks a task as done and moves it to the Done section', async () => {
         setup([task('a', 'Buy milk')]);
         const box = await screen.findByRole('checkbox', { name: 'Mark "Buy milk" as done' });
@@ -117,5 +136,65 @@ describe('Daily tasks', () => {
         expect(await screen.findByText('Could not delete the task. Please try again.')).toBeTruthy();
         expect(screen.getByText('Buy milk')).toBeTruthy();
         expect(consoleError).toHaveBeenCalled();
+    });
+});
+
+describe('Daily tasks from habits', () => {
+    const HABIT = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const OTHER = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const habit = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+        id, user_id: USER, name, category: 'Health', sort_order: 0, archived: false, schedule_mask: 127,
+        created_at: '2026-09-01T08:00:00.000Z', ...extra,
+    });
+
+    function setupWithHabits(db: Record<string, Record<string, unknown>[]>) {
+        fake = createFakeSupabase({ daily_tasks: [], entries: [], ...db });
+        holder.client = fake.client;
+        return render(<DailyTasksView userId={USER} />);
+    }
+
+    it('searches your habits and adds the picked one to today', async () => {
+        setupWithHabits({ tasks: [habit(HABIT, 'Drink water'), habit(OTHER, 'Read 10 pages', { category: 'Personal' })] });
+        await screen.findByText('Nothing planned yet');
+
+        const search = screen.getByRole('combobox', { name: 'Add from your habits' });
+        fireEvent.focus(search);
+        fireEvent.change(search, { target: { value: 'read' } });
+        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Read 10 pages')]);
+
+        fireEvent.click(screen.getByRole('option', { name: /Read 10 pages/ }));
+
+        expect(await screen.findByText('Read 10 pages')).toBeTruthy();
+        expect(fake.db.daily_tasks[0]).toMatchObject({ title: 'Read 10 pages', habit_id: OTHER, task_date: TODAY, completed: false });
+        // Already on the list, so it's no longer offered
+        fireEvent.focus(search);
+        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Drink water')]);
+    });
+
+    it('completing a habit task checks the habit in, and unticking undoes it', async () => {
+        setupWithHabits({ tasks: [habit(HABIT, 'Drink water')], daily_tasks: [task('t1', 'Drink water', { habit_id: HABIT })] });
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Mark "Drink water" as done' }));
+
+        await waitFor(() => expect(fake.db.entries).toEqual([expect.objectContaining({ task_id: HABIT, user_id: USER, entry_date: TODAY, completed: true })]));
+
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Mark "Drink water" as not done' }));
+        await waitFor(() => expect(fake.db.entries[0].completed).toBe(false));
+    });
+
+    it('a habit already ticked today shows its task as done', async () => {
+        setupWithHabits({
+            tasks: [habit(HABIT, 'Drink water')],
+            daily_tasks: [task('t1', 'Drink water', { habit_id: HABIT })],
+            entries: [{ id: 'e1', task_id: HABIT, user_id: USER, entry_date: TODAY, completed: true }],
+        });
+        expect(await screen.findByRole('checkbox', { name: 'Mark "Drink water" as not done' })).toBeTruthy();
+        await waitFor(() => expect(fake.db.daily_tasks[0].completed).toBe(true));
+    });
+
+    it('plain tasks never touch habits', async () => {
+        setupWithHabits({ tasks: [habit(HABIT, 'Drink water')], daily_tasks: [task('t1', 'Call bank')] });
+        fireEvent.click(await screen.findByRole('checkbox', { name: 'Mark "Call bank" as done' }));
+        await waitFor(() => expect(fake.db.daily_tasks[0].completed).toBe(true));
+        expect(fake.db.entries).toEqual([]);
     });
 });

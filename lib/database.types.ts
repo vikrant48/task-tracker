@@ -83,6 +83,7 @@ export type Database = {
                     completed: boolean;
                     completed_at: string | null;
                     created_at: string;
+                    habit_id: string | null;
                     id: string;
                     moved_from: string | null;
                     task_date: string;
@@ -93,6 +94,7 @@ export type Database = {
                     completed?: boolean;
                     completed_at?: string | null;
                     created_at?: string;
+                    habit_id?: string | null;
                     id?: string;
                     moved_from?: string | null;
                     task_date: string;

@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { addDays, format, parseISO, subDays } from 'date-fns';
-import { Check, Plus, Trash2, CalendarArrowUp, Loader2, ListChecks } from 'lucide-react';
+import { Check, Plus, Trash2, CalendarArrowUp, Loader2, ListChecks, Repeat } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import type { DailyTask } from '@/lib/types';
+import type { DailyTask, Task } from '@/lib/types';
 import { toDateStr } from '@/lib/dates';
+import { ENTRY_CONFLICT_COLUMNS } from '@/lib/entries';
 import { useDictation, appendSpoken } from '@/hooks/useDictation';
 import MicButton from '@/components/MicButton';
+import DictationError from '@/components/DictationError';
 import ErrorBanner from '@/components/ErrorBanner';
 import LoadingState from '@/components/LoadingState';
+import HabitPicker from './HabitPicker';
 
 const MAX_TITLE_LENGTH = 200;
 
@@ -29,7 +32,8 @@ function useToday() {
 }
 
 // One-off to-dos for today. Unfinished ones can be moved to tomorrow, where they show up
-// as "From yesterday"; only today's list is ever shown.
+// as "From yesterday"; only today's list is ever shown. A task added from a habit stays in step with it:
+// completing the task checks the habit in for that day.
 export default function DailyTasksView({ userId }: { userId: string }) {
     const supabase = useMemo(() => createClient(), []);
     const today = useToday();
@@ -41,43 +45,49 @@ export default function DailyTasksView({ userId }: { userId: string }) {
     const [error, setError] = useState<string | null>(null);
     const [title, setTitle] = useState('');
     const [adding, setAdding] = useState(false);
+    const [habits, setHabits] = useState<Task[]>([]);
     const dictation = useDictation<'title'>();
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             setLoading(true);
-            const { data, error: fetchError } = await supabase
-                .from('daily_tasks')
-                .select('*')
-                .eq('user_id', userId)
-                .eq('task_date', today)
-                .order('created_at', { ascending: true });
+            const [tasksRes, habitsRes, doneRes] = await Promise.all([
+                supabase.from('daily_tasks').select('*').eq('user_id', userId).eq('task_date', today).order('created_at', { ascending: true }),
+                supabase.from('tasks').select('*').eq('archived', false).order('sort_order', { ascending: true }),
+                // Habits already checked in today (e.g. on the Habits page)
+                supabase.from('entries').select('task_id').eq('user_id', userId).eq('entry_date', today).eq('completed', true),
+            ]);
             if (cancelled) return;
-            if (fetchError) {
-                console.error('Error loading daily tasks:', fetchError);
+            if (tasksRes.error) {
+                console.error('Error loading daily tasks:', tasksRes.error);
                 setError('Could not load your tasks. Pull to refresh or try again.');
-            } else {
-                setTasks(data || []);
-                setError(null);
+                setLoading(false);
+                return;
             }
+            setHabits(habitsRes.data || []);
+            setError(null);
+
+            // A habit ticked elsewhere completes its task here too
+            const doneHabits = new Set((doneRes.data || []).map((e) => e.task_id));
+            const catchUp = new Set((tasksRes.data || []).filter((t) => !t.completed && t.habit_id && doneHabits.has(t.habit_id)).map((t) => t.id));
+            const completed_at = new Date().toISOString();
+            setTasks((tasksRes.data || []).map((t) => (catchUp.has(t.id) ? { ...t, completed: true, completed_at } : t)));
             setLoading(false);
+            if (catchUp.size) {
+                await supabase.from('daily_tasks').update({ completed: true, completed_at }).in('id', [...catchUp]);
+            }
         })();
         return () => {
             cancelled = true;
         };
     }, [supabase, userId, today]);
 
-    const handleAdd = async (e: FormEvent) => {
-        e.preventDefault();
-        const clean = title.trim().slice(0, MAX_TITLE_LENGTH);
-        if (!clean || adding) return;
-
-        dictation.stop();
+    const insertTask = async (fields: { title: string; habit_id?: string; completed?: boolean }) => {
         setAdding(true);
         const { data, error: insertError } = await supabase
             .from('daily_tasks')
-            .insert({ title: clean, task_date: today, user_id: userId })
+            .insert({ ...fields, task_date: today, user_id: userId, completed_at: fields.completed ? new Date().toISOString() : null })
             .select()
             .single();
         setAdding(false);
@@ -85,11 +95,36 @@ export default function DailyTasksView({ userId }: { userId: string }) {
         if (insertError || !data) {
             console.error('Error adding task:', insertError);
             setError('Could not add the task. Please try again.');
-            return;
+            return false;
         }
         setTasks((prev) => [...prev, data]);
-        setTitle('');
+        return true;
     };
+
+    const handleAdd = async (e: FormEvent) => {
+        e.preventDefault();
+        const clean = title.trim().slice(0, MAX_TITLE_LENGTH);
+        if (!clean || adding) return;
+
+        dictation.stop();
+        if (await insertTask({ title: clean })) setTitle('');
+    };
+
+    // Add a habit as today's task, already done if the habit was checked in today
+    const addFromHabit = async (habit: Task) => {
+        const { data } = await supabase
+            .from('entries')
+            .select('completed')
+            .eq('task_id', habit.id)
+            .eq('user_id', userId)
+            .eq('entry_date', today);
+        await insertTask({ title: habit.name.slice(0, MAX_TITLE_LENGTH), habit_id: habit.id, completed: data?.[0]?.completed === true });
+    };
+
+    // Habits not already on today's list
+    const linkedToday = new Set(tasks.map((t) => t.habit_id).filter(Boolean));
+    const pickableHabits = habits.filter((h) => !linkedToday.has(h.id));
+    const habitName = (id: string) => habits.find((h) => h.id === id)?.name;
 
     // Apply a change locally right away, then save; restore the previous list if the save fails
     const optimistic = useCallback(
@@ -109,15 +144,31 @@ export default function DailyTasksView({ userId }: { userId: string }) {
         []
     );
 
-    const toggle = (task: DailyTask) => {
+    const toggle = async (task: DailyTask) => {
         const completed = !task.completed;
         const completed_at = completed ? new Date().toISOString() : null;
         navigator.vibrate?.([15]);
-        optimistic(
+        let saved = false;
+        await optimistic(
             (prev) => prev.map((t) => (t.id === task.id ? { ...t, completed, completed_at } : t)),
-            () => supabase.from('daily_tasks').update({ completed, completed_at }).eq('id', task.id),
+            async () => {
+                const result = await supabase.from('daily_tasks').update({ completed, completed_at }).eq('id', task.id);
+                saved = !result.error;
+                return result;
+            },
             'Could not update the task. Your change was not saved.'
         );
+        if (!saved || !task.habit_id) return;
+
+        // Keep the linked habit in step for the task's day
+        const { error: habitError } = await supabase.from('entries').upsert(
+            { task_id: task.habit_id, user_id: userId, entry_date: task.task_date, completed, completed_at },
+            { onConflict: ENTRY_CONFLICT_COLUMNS }
+        );
+        if (habitError) {
+            console.error('Error updating linked habit:', habitError);
+            setError(`The task was saved, but the habit "${habitName(task.habit_id) ?? task.title}" was not updated. Tick it on the Habits page.`);
+        }
     };
 
     const moveToTomorrow = (task: DailyTask) =>
@@ -164,9 +215,15 @@ export default function DailyTasksView({ userId }: { userId: string }) {
             </button>
 
             <div className="flex-1 min-w-0 py-1">
-                <p className={`text-base font-semibold break-words ${task.completed ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                <p className={`text-base font-semibold wrap-break-word ${task.completed ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
                     {task.title}
                 </p>
+                {task.habit_id && (
+                    <span className="inline-flex items-center gap-1 mt-0.5 mr-2 text-xs font-bold text-violet-600 dark:text-violet-400">
+                        <Repeat className="w-3.5 h-3.5" />
+                        Habit
+                    </span>
+                )}
                 {task.moved_from && (
                     <span className="inline-flex items-center gap-1 mt-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
                         <CalendarArrowUp className="w-3.5 h-3.5" />
@@ -234,6 +291,12 @@ export default function DailyTasksView({ userId }: { userId: string }) {
                     Add
                 </button>
             </form>
+            {dictation.error && <div className="-mt-2 sm:-mt-4"><DictationError message={dictation.error} /></div>}
+
+            {/* Or pick one of your habits: completing the task then checks the habit in too */}
+            <div className="-mt-2 sm:-mt-4">
+                <HabitPicker habits={pickableHabits} today={today} disabled={adding || loading} onPick={addFromHabit} />
+            </div>
 
             {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 

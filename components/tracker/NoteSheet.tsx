@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns';
 import { StickyNote, Loader2 } from 'lucide-react';
 import Sheet from '@/components/Sheet';
 import MicButton from '@/components/MicButton';
+import DictationError from '@/components/DictationError';
 import { appendSpoken, useDictation } from '@/hooks/useDictation';
 
 const MAX_NOTE = 500;
@@ -59,6 +60,7 @@ export default function NoteSheet({ taskName, dateStr, initialNote, onSave, onCl
                         onClick={() => dictation.toggle('note', (text) => setNote((prev) => appendSpoken(prev, text).slice(0, MAX_NOTE)))}
                     />
                 </div>
+                <DictationError message={dictation.error} />
                 <span className="block text-right text-xs text-slate-400 mt-1">{note.length}/{MAX_NOTE}</span>
             </div>
 
