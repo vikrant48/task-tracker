@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { isStrongPassword } from '@/lib/password';
 
 export type AuthResult = { error?: string; success?: string } | undefined;
 
@@ -37,14 +38,28 @@ export async function signup(formData: FormData): Promise<AuthResult> {
         return { error: 'Email and password are required.' };
     }
 
+    if (!isStrongPassword(credentials.password)) {
+        return { error: 'Password needs at least 6 characters, one capital letter and one special character.' };
+    }
+
     const supabase = await createClient();
-    const { error } = await supabase.auth.signUp(credentials);
+    const { data, error } = await supabase.auth.signUp(credentials);
 
     if (error) {
         return { error: error.message };
     }
+    // Supabase hides whether an email is registered: an existing account comes back with no identities
+    if (data.user && data.user.identities?.length === 0) {
+        return { error: 'An account with this email already exists. Please sign in.' };
+    }
+    // No session means Supabase requires email confirmation first
+    if (!data.session) {
+        return { success: 'Account created! Check your inbox and confirm your email, then sign in.' };
+    }
 
-    return { success: 'Account created! You can now log in.' };
+    // Signed in straight away
+    revalidatePath('/', 'layout');
+    redirect('/');
 }
 
 export async function signout() {

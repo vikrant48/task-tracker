@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useTransition, type FormEvent } from 'react';
+import { Eye, EyeOff, Info, Check, X } from 'lucide-react';
+import { PASSWORD_RULES, isStrongPassword } from '@/lib/password';
 import { login, signup } from './actions';
 
 export default function LoginPage() {
@@ -8,11 +10,28 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
+    const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [showRules, setShowRules] = useState(false);
+
+    const isSignup = mode === 'signup';
+    const weakPassword = isSignup && !isStrongPassword(password);
+
+    const switchMode = (next: 'login' | 'signup') => {
+        setMode(next);
+        setError(null);
+        setSuccess(null);
+        setShowRules(false);
+    };
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError(null);
         setSuccess(null);
+        if (weakPassword) {
+            setShowRules(true);
+            return;
+        }
 
         const form = e.currentTarget;
         const formData = new FormData(form);
@@ -30,6 +49,7 @@ export default function LoginPage() {
                 } else if (result?.success) {
                     setSuccess(result.success);
                     form.reset();
+                    setPassword('');
                 }
             }
         });
@@ -59,11 +79,7 @@ export default function LoginPage() {
                         <button
                             type="button"
                             aria-pressed={mode === 'login'}
-                            onClick={() => {
-                                setMode('login');
-                                setError(null);
-                                setSuccess(null);
-                            }}
+                            onClick={() => switchMode('login')}
                             className={`pb-3 text-sm font-semibold flex-1 transition-all ${mode === 'login'
                                 ? 'text-violet-400 border-b-2 border-violet-400'
                                 : 'text-slate-400 hover:text-slate-200'
@@ -74,11 +90,7 @@ export default function LoginPage() {
                         <button
                             type="button"
                             aria-pressed={mode === 'signup'}
-                            onClick={() => {
-                                setMode('signup');
-                                setError(null);
-                                setSuccess(null);
-                            }}
+                            onClick={() => switchMode('signup')}
                             className={`pb-3 text-sm font-semibold flex-1 transition-all ${mode === 'signup'
                                 ? 'text-violet-400 border-b-2 border-violet-400'
                                 : 'text-slate-400 hover:text-slate-200'
@@ -110,17 +122,61 @@ export default function LoginPage() {
                             <label htmlFor="password" className="block text-sm font-medium text-slate-300">
                                 Password
                             </label>
-                            <div className="mt-1">
+                            <div className="mt-1 relative">
                                 <input
                                     id="password"
                                     name="password"
-                                    type="password"
+                                    type={showPassword ? 'text' : 'password'}
                                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                                     required
-                                    className="appearance-none block w-full px-3 py-2 border border-slate-800 rounded-lg bg-slate-950 placeholder-slate-500 text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all sm:text-sm"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    aria-describedby={isSignup ? 'password-rules' : undefined}
+                                    aria-invalid={weakPassword && password.length > 0}
+                                    className={`appearance-none block w-full pl-3 py-2 border border-slate-800 rounded-lg bg-slate-950 placeholder-slate-500 text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all sm:text-sm ${weakPassword ? 'pr-20' : 'pr-11'}`}
                                     placeholder="••••••••"
                                 />
+                                <div className="absolute inset-y-0 right-1 flex items-center">
+                                    {weakPassword && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowRules((v) => !v)}
+                                            aria-label="Password requirements"
+                                            aria-expanded={showRules}
+                                            title="Password requirements"
+                                            className="w-9 h-9 flex items-center justify-center rounded-md text-amber-400 hover:text-amber-300"
+                                        >
+                                            <Info className="w-5 h-5" />
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword((v) => !v)}
+                                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                        aria-pressed={showPassword}
+                                        title={showPassword ? 'Hide password' : 'Show password'}
+                                        className="w-9 h-9 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-200"
+                                    >
+                                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    </button>
+                                </div>
                             </div>
+
+                            {/* Signup: what a password needs, ticked off as you type */}
+                            {isSignup && (showRules || (password.length > 0 && weakPassword)) && (
+                                <ul id="password-rules" className="mt-2 space-y-1 text-xs">
+                                    {PASSWORD_RULES.map((rule) => {
+                                        const ok = rule.test(password);
+                                        return (
+                                            <li key={rule.id} className={`flex items-center gap-1.5 ${ok ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                                {ok ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                                                <span>{rule.label}</span>
+                                                <span className="sr-only">{ok ? '(done)' : '(missing)'}</span>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
                         </div>
 
                         {error && (
