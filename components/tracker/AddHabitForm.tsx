@@ -98,7 +98,7 @@ export default function AddHabitForm({ adding, onAdd }: AddHabitFormProps) {
                     aria-label="New habit name"
                     placeholder="I want to work on..."
                     enterKeyHint="done"
-                    className="flex-1 min-w-0 appearance-none bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-12 px-4 rounded-xl text-sm placeholder-slate-400 dark:placeholder-slate-500 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+                    className="w-full sm:flex-1 min-w-0 shrink-0 appearance-none bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-12 px-4 rounded-xl text-sm placeholder-slate-400 dark:placeholder-slate-500 text-slate-900 dark:text-white font-semibold focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
                     autoFocus
                 />
                 <button
