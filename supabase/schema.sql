@@ -271,16 +271,48 @@ RETURNS VOID LANGUAGE sql SECURITY INVOKER SET search_path = '' AS $$
     WHERE t.id = o.id AND t.user_id = auth.uid();
 $$;
 
+-- Habit -> task: when a habit is ticked or unticked anywhere (Habits page, History, AI log, offline sync,
+-- another device), the daily task added from it for that day follows. (Task -> habit is done by the app.)
+-- Runs as the caller, so RLS still applies; it only touches the same person's tasks.
+CREATE OR REPLACE FUNCTION public.sync_habit_tasks()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
+BEGIN
+    -- A new unticked row (e.g. a note on an empty day) says nothing about completion
+    IF TG_OP = 'INSERT' AND NOT NEW.completed THEN RETURN NULL; END IF;
+    UPDATE public.daily_tasks d
+    SET completed = NEW.completed,
+        completed_at = CASE WHEN NEW.completed THEN COALESCE(NEW.completed_at, NOW()) END
+    WHERE d.habit_id = NEW.task_id
+      AND d.user_id = NEW.user_id
+      AND d.task_date = NEW.entry_date
+      AND d.completed IS DISTINCT FROM NEW.completed;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS entries_sync_habit_tasks ON public.entries;
+CREATE TRIGGER entries_sync_habit_tasks
+    AFTER INSERT OR UPDATE OF completed ON public.entries
+    FOR EACH ROW EXECUTE FUNCTION public.sync_habit_tasks();
+
+-- Bring existing habit tasks in line with their habit (no-op once in sync)
+UPDATE public.daily_tasks d
+SET completed = e.completed,
+    completed_at = CASE WHEN e.completed THEN COALESCE(e.completed_at, NOW()) END
+FROM public.entries e
+WHERE d.habit_id = e.task_id AND e.user_id = d.user_id AND e.entry_date = d.task_date
+  AND d.completed IS DISTINCT FROM e.completed;
+
 -- Supabase grants EXECUTE to anon by default; only signed-in users may call these
 REVOKE EXECUTE ON FUNCTION
     public.is_task_owner(UUID), public.is_task_shared_with_me(UUID), public.share_task(UUID, TEXT),
     public.get_task_streak_stats(DATE), public.get_streak_carry_in(DATE), public.reorder_tasks(UUID[]),
-    public.schedule_has_day(INTEGER, DATE), public.schedule_ordinal(INTEGER, DATE)
+    public.schedule_has_day(INTEGER, DATE), public.schedule_ordinal(INTEGER, DATE), public.sync_habit_tasks()
 FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION
     public.is_task_owner(UUID), public.is_task_shared_with_me(UUID), public.share_task(UUID, TEXT),
     public.get_task_streak_stats(DATE), public.get_streak_carry_in(DATE), public.reorder_tasks(UUID[]),
-    public.schedule_has_day(INTEGER, DATE), public.schedule_ordinal(INTEGER, DATE)
+    public.schedule_has_day(INTEGER, DATE), public.schedule_ordinal(INTEGER, DATE), public.sync_habit_tasks()
 TO authenticated;
 
 -- ---------------------------------------------------------------- policies

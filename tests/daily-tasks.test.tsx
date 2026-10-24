@@ -181,14 +181,15 @@ describe('Daily tasks from habits', () => {
         await waitFor(() => expect(fake.db.entries[0].completed).toBe(false));
     });
 
-    it('a habit already ticked today shows its task as done', async () => {
-        setupWithHabits({
-            tasks: [habit(HABIT, 'Drink water')],
-            daily_tasks: [task('t1', 'Drink water', { habit_id: HABIT })],
-            entries: [{ id: 'e1', task_id: HABIT, user_id: USER, entry_date: TODAY, completed: true }],
-        });
+    it('picks up a habit ticked elsewhere when the app comes back to the foreground', async () => {
+        setupWithHabits({ tasks: [habit(HABIT, 'Drink water')], daily_tasks: [task('t1', 'Drink water', { habit_id: HABIT })] });
+        await screen.findByRole('checkbox', { name: 'Mark "Drink water" as done' });
+
+        // Ticked on the Habits page; the sync_habit_tasks trigger completes the linked task
+        fake.db.daily_tasks[0].completed = true;
+        act(() => window.dispatchEvent(new Event('focus')));
+
         expect(await screen.findByRole('checkbox', { name: 'Mark "Drink water" as not done' })).toBeTruthy();
-        await waitFor(() => expect(fake.db.daily_tasks[0].completed).toBe(true));
     });
 
     it('plain tasks never touch habits', async () => {

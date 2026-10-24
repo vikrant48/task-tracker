@@ -16,11 +16,15 @@ import HabitPicker from './HabitPicker';
 
 const MAX_TITLE_LENGTH = 200;
 
-// "Today" in the user's timezone; refreshed when the app comes back to the foreground after midnight
-function useToday() {
-    const [today, setToday] = useState(() => toDateStr(new Date()));
+// "Today" in the user's timezone, plus a counter that ticks whenever the app comes back to the
+// foreground, so the list is re-read (habits may have been ticked meanwhile, or it may be past midnight)
+function useForeground() {
+    const [state, setState] = useState(() => ({ today: toDateStr(new Date()), tick: 0 }));
     useEffect(() => {
-        const refresh = () => setToday(toDateStr(new Date()));
+        const refresh = () => {
+            if (document.visibilityState === 'hidden') return;
+            setState((s) => ({ today: toDateStr(new Date()), tick: s.tick + 1 }));
+        };
         document.addEventListener('visibilitychange', refresh);
         window.addEventListener('focus', refresh);
         return () => {
@@ -28,15 +32,16 @@ function useToday() {
             window.removeEventListener('focus', refresh);
         };
     }, []);
-    return today;
+    return state;
 }
 
 // One-off to-dos for today. Unfinished ones can be moved to tomorrow, where they show up
 // as "From yesterday"; only today's list is ever shown. A task added from a habit stays in step with it:
-// completing the task checks the habit in for that day.
+// completing the task checks the habit in for that day, and ticking the habit anywhere else completes the task
+// (a database trigger, see sync_habit_tasks in supabase/schema.sql).
 export default function DailyTasksView({ userId }: { userId: string }) {
     const supabase = useMemo(() => createClient(), []);
-    const today = useToday();
+    const { today, tick } = useForeground();
     const tomorrow = toDateStr(addDays(parseISO(today), 1));
     const yesterday = toDateStr(subDays(parseISO(today), 1));
 
@@ -51,12 +56,11 @@ export default function DailyTasksView({ userId }: { userId: string }) {
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            setLoading(true);
-            const [tasksRes, habitsRes, doneRes] = await Promise.all([
+            // Spinner only on the first load; foreground refreshes update the list quietly
+            if (tick === 0) setLoading(true);
+            const [tasksRes, habitsRes] = await Promise.all([
                 supabase.from('daily_tasks').select('*').eq('user_id', userId).eq('task_date', today).order('created_at', { ascending: true }),
                 supabase.from('tasks').select('*').eq('archived', false).order('sort_order', { ascending: true }),
-                // Habits already checked in today (e.g. on the Habits page)
-                supabase.from('entries').select('task_id').eq('user_id', userId).eq('entry_date', today).eq('completed', true),
             ]);
             if (cancelled) return;
             if (tasksRes.error) {
@@ -66,22 +70,14 @@ export default function DailyTasksView({ userId }: { userId: string }) {
                 return;
             }
             setHabits(habitsRes.data || []);
+            setTasks(tasksRes.data || []);
             setError(null);
-
-            // A habit ticked elsewhere completes its task here too
-            const doneHabits = new Set((doneRes.data || []).map((e) => e.task_id));
-            const catchUp = new Set((tasksRes.data || []).filter((t) => !t.completed && t.habit_id && doneHabits.has(t.habit_id)).map((t) => t.id));
-            const completed_at = new Date().toISOString();
-            setTasks((tasksRes.data || []).map((t) => (catchUp.has(t.id) ? { ...t, completed: true, completed_at } : t)));
             setLoading(false);
-            if (catchUp.size) {
-                await supabase.from('daily_tasks').update({ completed: true, completed_at }).in('id', [...catchUp]);
-            }
         })();
         return () => {
             cancelled = true;
         };
-    }, [supabase, userId, today]);
+    }, [supabase, userId, today, tick]);
 
     const insertTask = async (fields: { title: string; habit_id?: string; completed?: boolean }) => {
         setAdding(true);
